@@ -95,17 +95,12 @@ def get_history():
 def get_crew_headers():
     # We now look for Environment Variables provided by Docker
     bearer_token = os.environ.get("BEARER_TOKEN")
-    session_token = os.environ.get("SESSION_TOKEN")
 
-    if not bearer_token or not session_token:
-        print("Error: Tokens not found in environment variables.")
-        return None
 
     return {
         "accept": "*/*",
         "content-type": "application/json",
         "authorization": bearer_token,
-        "session_token": session_token,
         "user-agent": "Crew/1 CFNetwork/3860.300.31 Darwin/25.2.0",
     }
 

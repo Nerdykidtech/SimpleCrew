@@ -8,5 +8,4 @@ services:
     volumes:
       - ./data:/app/data  # Saves your DB to a folder named 'data' next to this file
     environment:
-      - BEARER_TOKEN= {BEARER_TOKEN}
-      - SESSION_TOKEN= {SESSION_TOKEN}
+      - BEARER_TOKEN= {BEARER ##############}
