@@ -60,11 +60,28 @@ def cached(key_prefix):
         return wrapper
     return decorator
 
-# --- DATABASE FUNCTIONS ---
+
+# 1. UPDATE DATABASE SCHEMA
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS history (date TEXT PRIMARY KEY, balance REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)''')
+    
+    # Updated to include sort_order
+    c.execute('''CREATE TABLE IF NOT EXISTS pocket_links (
+        pocket_id TEXT PRIMARY KEY, 
+        group_id INTEGER,
+        sort_order INTEGER DEFAULT 0
+    )''')
+    
+    # Migration helper: Check if sort_order exists, if not, add it (for existing DBs)
+    try:
+        c.execute("SELECT sort_order FROM pocket_links LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding sort_order column...")
+        c.execute("ALTER TABLE pocket_links ADD COLUMN sort_order INTEGER DEFAULT 0")
+
     conn.commit()
     conn.close()
 
@@ -387,14 +404,36 @@ def get_expenses_data():
     except Exception as e:
         return {"error": str(e)}
         
+# --- DATA FETCHERS (Update get_goals_data) ---
+# 2. UPDATE GET_GOALS TO SORT
 @cached("goals")
 def get_goals_data():
     try:
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
+        
+        # 1. Fetch from API
         query_string = """ query CurrentUser { currentUser { accounts { subaccounts { goal overallBalance name id } } } } """
         response = requests.post(URL, headers=headers, json={"operationName": "CurrentUser", "query": query_string})
         data = response.json()
+        
+        # 2. Fetch Groups and Links from DB
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        
+        c.execute("SELECT id, name FROM groups")
+        group_rows = c.fetchall()
+        groups_dict = {row[0]: row[1] for row in group_rows}
+        
+        # Get links with Sorting
+        c.execute("SELECT pocket_id, group_id, sort_order FROM pocket_links")
+        link_rows = c.fetchall()
+        # Create lookups
+        links_dict = {row[0]: row[1] for row in link_rows} 
+        order_dict = {row[0]: row[2] for row in link_rows}
+        
+        conn.close()
+
         goals = []
         for account in data.get("data", {}).get("currentUser", {}).get("accounts", []):
             for sub in account.get("subaccounts", []):
@@ -402,8 +441,28 @@ def get_goals_data():
                 if name != "Checking":
                     balance = sub.get("overallBalance", 0) / 100.0
                     target = sub.get("goal", 0) / 100.0 if sub.get("goal") else 0
-                    goals.append({"id": sub.get("id"), "name": name, "balance": balance, "target": target, "status": "Active"})
-        return {"goals": goals}
+                    p_id = sub.get("id")
+                    
+                    g_id = links_dict.get(p_id)
+                    g_name = groups_dict.get(g_id)
+                    # Default sort order to 999 if not set, so new items appear at bottom
+                    s_order = order_dict.get(p_id, 999) 
+                    
+                    goals.append({
+                        "id": p_id, 
+                        "name": name, 
+                        "balance": balance, 
+                        "target": target, 
+                        "status": "Active",
+                        "groupId": g_id,
+                        "groupName": g_name,
+                        "sortOrder": s_order
+                    })
+        
+        # Python-side sort based on the DB order
+        goals.sort(key=lambda x: x['sortOrder'])
+        
+        return {"goals": goals, "all_groups": [{"id": k, "name": v} for k,v in groups_dict.items()]}
     except Exception as e:
         return {"error": str(e)}
 
@@ -653,34 +712,14 @@ def delete_subaccount_action(sub_id):
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
 
-        # exact mutation requested
+        # Crew API Mutation
         query_string = """
         mutation DeleteSubaccount($id: ID!) {
             deleteSubaccount(input: { subaccountId: $id }) {
                 result {
-                    avatarUrl
-                    balance
-                    belongsToCurrentUser
-                    clearedBalance
-                    displayName
-                    externalLinkNeedsRepair
-                    goal
-                    hidden
-                    icon
                     id
-                    isChildAccount
-                    isExternalAccount
-                    isPrimary
-                    isWireRecipientAccount
                     name
-                    note
-                    overallBalance
-                    piggyBanked
-                    shouldPollBalance
                     status
-                    subaccountType
-                    targetAmount
-                    type
                 }
             }
         }
@@ -698,6 +737,18 @@ def delete_subaccount_action(sub_id):
         
         if 'errors' in data:
             return {"error": data['errors'][0]['message']}
+
+        # --- NEW: Clean up local DB ---
+        # This ensures the deleted pocket is removed from your local grouping table
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("DELETE FROM pocket_groups WHERE pocket_id = ?", (sub_id,))
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: Failed to cleanup local DB group: {e}")
+        finally:
+            if conn: conn.close()
             
         print("🧹 Clearing Cache after deletion...")
         cache.clear()
@@ -986,6 +1037,120 @@ def api_cards():
     # Allow forcing a refresh if ?refresh=true is passed
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_cards_data(force_refresh=refresh))
+
+# 3. CREATE THE MISSING MOVE/REORDER ENDPOINT
+@app.route('/api/groups/move-pocket', methods=['POST'])
+def api_move_pocket():
+    data = request.json
+    
+    # We expect: 
+    # 1. targetGroupId (where it's going)
+    # 2. orderedPocketIds (the full list of pocket IDs in that group, in order)
+    
+    target_group_id = data.get('targetGroupId') # Can be None (Ungrouped)
+    ordered_ids = data.get('orderedPocketIds', [])
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        # Loop through the list provided by frontend and update both Group and Order
+        for index, pocket_id in enumerate(ordered_ids):
+            if target_group_id is None:
+                # If ungrouped, we delete the link (or set group_id NULL if you prefer)
+                # But to keep sorting in "Ungrouped" area, let's keep the row with NULL group_id
+                # Check if exists
+                c.execute("INSERT OR REPLACE INTO pocket_links (pocket_id, group_id, sort_order) VALUES (?, NULL, ?)", (pocket_id, index))
+            else:
+                c.execute("INSERT OR REPLACE INTO pocket_links (pocket_id, group_id, sort_order) VALUES (?, ?, ?)", (pocket_id, target_group_id, index))
+        
+        conn.commit()
+        cache.clear()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/groups/manage', methods=['POST'])
+def api_manage_group():
+    # Handles Create and Update
+    data = request.json
+    group_id = data.get('id') # None if creating
+    name = data.get('name')
+    pocket_ids = data.get('pockets', []) # List of pocket IDs to assign
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        if not group_id:
+            # CREATE
+            c.execute("INSERT INTO groups (name) VALUES (?)", (name,))
+            group_id = c.lastrowid
+        else:
+            # UPDATE NAME
+            c.execute("UPDATE groups SET name = ? WHERE id = ?", (name, group_id))
+            
+        # UPDATE POCKET LINKS
+        # 1. Remove all pockets currently assigned to this group (to handle unchecking)
+        c.execute("DELETE FROM pocket_links WHERE group_id = ?", (group_id,))
+        
+        # 2. Assign selected pockets (Moving them from other groups if necessary)
+        for pid in pocket_ids:
+            # Remove from any other group first (implicit via REPLACE if we used that, but safer to delete old link)
+            c.execute("DELETE FROM pocket_links WHERE pocket_id = ?", (pid,))
+            c.execute("INSERT INTO pocket_links (pocket_id, group_id) VALUES (?, ?)", (pid, group_id))
+            
+        conn.commit()
+        cache.clear()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/groups/delete', methods=['POST'])
+def api_delete_group():
+    data = request.json
+    group_id = data.get('id')
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        # Delete Group
+        c.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+        # Unlink pockets (they become ungrouped)
+        c.execute("DELETE FROM pocket_links WHERE group_id = ?", (group_id,))
+        conn.commit()
+        cache.clear()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
+
+# --- NEW API ROUTE: Assign Group ---
+@app.route('/api/assign-group', methods=['POST'])
+def api_assign_group():
+    data = request.json
+    pocket_id = data.get('pocketId')
+    group_name = data.get('groupName') # If empty string, we treat as ungroup
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        if not group_name or group_name.strip() == "":
+            c.execute("DELETE FROM pocket_groups WHERE pocket_id = ?", (pocket_id,))
+        else:
+            c.execute("INSERT OR REPLACE INTO pocket_groups (pocket_id, group_name) VALUES (?, ?)", (pocket_id, group_name))
+        conn.commit()
+        
+        # Clear cache to force UI update
+        cache.clear()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
 
 @app.route('/api/set-card-spend', methods=['POST'])
 def api_set_card_spend():
