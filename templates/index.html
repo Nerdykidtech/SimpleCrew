@@ -1446,7 +1446,7 @@
                                 <div style="font-size: 48px; margin-bottom: 20px;">💳</div>
                                 <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Set Up Credit Card Tracking</h1>
                                 <p style="font-size: 18px; color: var(--text-light); line-height: 1.6;">
-                                    Connect your credit card through LunchFlow to track transactions and stay in sync with Crew.
+                                    Connect your credit card to track transactions and stay in sync with Crew.
                                 </p>
                             </div>
 
@@ -1454,7 +1454,7 @@
                                 <h2 style="font-size: 24px; font-weight: 600; margin-bottom: 20px;">How It Works</h2>
                                 <div style="line-height: 1.8; font-size: 16px;">
                                     <p style="margin-bottom: 16px;">
-                                        When you connect your credit card through <a href="https://lunchflow.app" target="_blank" style="color: white; text-decoration: underline;">LunchFlow</a>, Crew automatically creates a <strong>"Credit Card" Pocket</strong> to keep your spending in sync.
+                                        When you connect your credit card, Crew automatically creates a <strong>"Credit Card" Pocket</strong> to keep your spending in sync.
                                     </p>
                                     <p style="margin-bottom: 16px;">
                                         Money automatically moves from your <strong>Safe-to-Spend</strong> to your Credit Card Pocket whenever you make a purchase, ensuring you always have enough set aside to pay off your credit card balance.
@@ -1465,9 +1465,45 @@
                                 </div>
                             </div>
 
-                            <!-- API Key Setup Instructions -->
-                            <div id="api-key-setup" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
-                                <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Configure LunchFlow API Key</h3>
+                            <!-- Provider Selection -->
+                            <div id="provider-selection" style="display: none;">
+                                <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark); text-align: center;">Choose Your Provider</h3>
+                                <p style="color: var(--text-light); margin-bottom: 30px; text-align: center;">Select how you'd like to connect your credit card account.</p>
+
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                                    <div onclick="selectProvider('lunchflow')" style="background: white; border: 2px solid #e0e0e0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.2s; text-align: center;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                                        <div style="font-size: 48px; margin-bottom: 16px;">🍱</div>
+                                        <h4 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px;">LunchFlow</h4>
+                                        <p style="font-size: 14px; color: var(--text-light); line-height: 1.5; margin-bottom: 12px;">
+                                            API-based connection with daily syncing
+                                        </p>
+                                        <span style="display: inline-block; background: #e3f2fd; color: #1976d2; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">Recommended</span>
+                                    </div>
+
+                                    <div onclick="selectProvider('simplefin')" style="background: white; border: 2px solid #e0e0e0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.2s; text-align: center;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                                        <div style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+                                        <h4 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px;">SimpleFin</h4>
+                                        <p style="font-size: 14px; color: var(--text-light); line-height: 1.5; margin-bottom: 12px;">
+                                            Direct protocol connection via token
+                                        </p>
+                                        <span style="display: inline-block; background: #f3e5f5; color: #7b1fa2; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">Open Protocol</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- LunchFlow Setup -->
+                            <div id="lunchflow-setup" style="display: none;">
+                                <div style="margin-bottom: 20px;">
+                                    <button onclick="showProviderSelection()" style="background: none; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; padding: 8px 0;">
+                                        ← Back to provider selection
+                                    </button>
+                                </div>
+
+                                <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">LunchFlow Setup</h3>
+
+                                <!-- API Key Setup Instructions -->
+                                <div id="api-key-setup" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
+                                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Configure LunchFlow API Key</h3>
                                 <ol style="line-height: 2; color: var(--text-light); padding-left: 20px;">
                                     <li>Sign up for a <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow account</a></li>
                                     <li>Create an API destination in your LunchFlow dashboard</li>
@@ -1484,16 +1520,90 @@
                                 </p>
                             </div>
 
-                            <!-- Account Selection (shown when API key is configured) -->
-                            <div id="account-selection" style="display: none;">
-                                <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 2: Select Your Credit Card Account</h3>
-                                <p style="color: var(--text-light); margin-bottom: 20px;">
-                                    Select which account from your LunchFlow connections should be tracked as your credit card account:
-                                </p>
-                                <div id="accounts-list" style="margin-bottom: 20px;">
-                                    <div style="text-align: center; padding: 40px; color: #999;">
-                                        <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
-                                        Loading accounts...
+                                <!-- Account Selection (shown when API key is configured) -->
+                                <div id="account-selection" style="display: none;">
+                                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 2: Select Your Credit Card Account</h3>
+                                    <p style="color: var(--text-light); margin-bottom: 20px;">
+                                        Select which account from your LunchFlow connections should be tracked as your credit card account:
+                                    </p>
+                                    <div id="accounts-list" style="margin-bottom: 20px;">
+                                        <div style="text-align: center; padding: 40px; color: #999;">
+                                            <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+                                            Loading accounts...
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SimpleFin Setup -->
+                            <div id="simplefin-setup" style="display: none;">
+                                <div style="margin-bottom: 20px;">
+                                    <button onclick="showProviderSelection()" style="background: none; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; padding: 8px 0;">
+                                        ← Back to provider selection
+                                    </button>
+                                </div>
+
+                                <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">SimpleFin Setup</h3>
+
+                                <!-- Invalid Token Warning -->
+                                <div id="simplefin-invalid-warning" style="display: none; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                                        <div style="font-size: 24px;">⚠️</div>
+                                        <div style="flex: 1;">
+                                            <div style="font-weight: 600; margin-bottom: 8px; color: #e65100;">SimpleFin Token Invalid or Revoked</div>
+                                            <p style="color: #e65100; line-height: 1.6; margin-bottom: 12px; font-size: 14px;">
+                                                Your SimpleFin access token has been revoked or is no longer valid. This can happen if you deleted the connection from your bank's side or if the token expired.
+                                            </p>
+                                            <button onclick="disconnectSimpleFin()" style="background: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                                Disconnect SimpleFin
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Token Input -->
+                                <div id="simplefin-token-input" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
+                                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Enter Your SimpleFin Setup Token</h3>
+                                    <ol style="line-height: 2; color: var(--text-light); padding-left: 20px; margin-bottom: 20px;">
+                                        <li>Get your SimpleFin setup token from your bank or financial institution</li>
+                                        <li>The token is a Base64-encoded string (one-time use only)</li>
+                                        <li>Paste the token below and click "Connect"</li>
+                                    </ol>
+                                    <div style="margin-bottom: 16px;">
+                                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">SimpleFin Setup Token</label>
+                                        <input type="text" id="simplefin-token-field" placeholder="Paste your Base64-encoded setup token here" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-family: monospace; font-size: 13px;">
+                                    </div>
+                                    <button onclick="claimSimpleFinToken()" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                        Claim Setup Token
+                                    </button>
+                                    <p style="color: var(--text-light); margin-top: 16px; font-size: 14px;">
+                                        Note: The setup token is one-time use. Once claimed, it cannot be used again. Your access credentials will be securely stored.
+                                    </p>
+                                </div>
+
+                                <!-- Account Selection (shown after token claimed) -->
+                                <div id="simplefin-account-selection" style="display: none;">
+                                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 2: Select Your Credit Card Account</h3>
+                                    <p style="color: var(--text-light); margin-bottom: 20px;">
+                                        Select which account from your SimpleFin connection should be tracked as your credit card account:
+                                    </p>
+                                    <div id="simplefin-accounts-list" style="margin-bottom: 20px;">
+                                        <div style="text-align: center; padding: 40px; color: #999;">
+                                            <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+                                            Loading accounts...
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                                        <div style="font-size: 24px;">ℹ️</div>
+                                        <div style="flex: 1;">
+                                            <div style="font-weight: 600; margin-bottom: 8px; color: #1565c0;">About SimpleFin</div>
+                                            <p style="color: #1565c0; line-height: 1.6; margin: 0; font-size: 14px;">
+                                                SimpleFin is a read-only financial data sharing protocol. Your token contains credentials that allow secure access to your account data without sharing passwords. Learn more at <a href="https://www.simplefin.org/protocol.html" target="_blank" style="color: #1565c0; text-decoration: underline;">simplefin.org</a>.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1562,6 +1672,22 @@
 
                         <!-- Management Interface (shown when fully configured) -->
                         <div id="credit-management-screen" style="display: none;">
+                            <!-- Invalid Token Warning (for SimpleFin) -->
+                            <div id="credit-management-invalid-warning" style="display: none; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                                    <div style="font-size: 24px;">⚠️</div>
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; margin-bottom: 8px; color: #e65100;">SimpleFin Token Invalid or Revoked</div>
+                                        <p style="color: #e65100; line-height: 1.6; margin-bottom: 12px; font-size: 14px;">
+                                            Your SimpleFin access token has been revoked or is no longer valid. Transactions will not sync until you reconnect.
+                                        </p>
+                                        <button onclick="disconnectSimpleFin()" style="background: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s; margin-right: 10px;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                            Disconnect SimpleFin
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Credit Card Pocket Display with Animation -->
                             <div id="credit-card-pocket-display" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 40px; margin-bottom: 30px; color: white; position: relative; overflow: hidden;">
                                 <div style="position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
@@ -1792,16 +1918,94 @@
         }
 
         // --- CREDIT CARD SETUP LOGIC ---
+        let selectedProvider = null;
+        let simpleFinAccessUrl = null;
+
+        function showProviderSelection() {
+            document.getElementById('provider-selection').style.display = 'block';
+            document.getElementById('lunchflow-setup').style.display = 'none';
+            document.getElementById('simplefin-setup').style.display = 'none';
+        }
+
+        function selectProvider(provider) {
+            selectedProvider = provider;
+            document.getElementById('provider-selection').style.display = 'none';
+
+            if (provider === 'lunchflow') {
+                document.getElementById('lunchflow-setup').style.display = 'block';
+                document.getElementById('simplefin-setup').style.display = 'none';
+                // Check if API key is configured
+                fetch('/api/lunchflow/credit-card-status')
+                    .then(res => res.json())
+                    .then(status => {
+                        if (status.hasApiKey) {
+                            document.getElementById('api-key-setup').style.display = 'none';
+                            document.getElementById('account-selection').style.display = 'block';
+                            loadLunchFlowAccounts();
+                        } else {
+                            document.getElementById('api-key-setup').style.display = 'block';
+                            document.getElementById('account-selection').style.display = 'none';
+                        }
+                    });
+            } else if (provider === 'simplefin') {
+                document.getElementById('lunchflow-setup').style.display = 'none';
+                document.getElementById('simplefin-setup').style.display = 'block';
+
+                // Check status for token validity
+                fetch('/api/lunchflow/credit-card-status')
+                    .then(res => res.json())
+                    .then(status => {
+                        // Show invalid token warning if needed
+                        if (status.simplefinTokenInvalid) {
+                            document.getElementById('simplefin-invalid-warning').style.display = 'block';
+                            document.getElementById('simplefin-token-input').style.display = 'none';
+                            document.getElementById('simplefin-account-selection').style.display = 'none';
+                        } else {
+                            document.getElementById('simplefin-invalid-warning').style.display = 'none';
+
+                            // Check if we already have a SimpleFin access URL stored
+                            console.log('Checking for stored SimpleFin access URL...');
+                            if (status.hasSimplefinAccessUrl) {
+                                // We already have an access URL - fetch it and load accounts
+                                fetch('/api/simplefin/get-access-url')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        console.log('SimpleFin access URL check result:', data);
+                                        if (data.success && data.accessUrl) {
+                                            console.log('✅ Found stored SimpleFin access URL, loading accounts...');
+                                            simpleFinAccessUrl = data.accessUrl;
+                                            document.getElementById('simplefin-token-input').style.display = 'none';
+                                            document.getElementById('simplefin-account-selection').style.display = 'block';
+                                            loadSimpleFinAccounts();
+                                        }
+                                    });
+                            } else {
+                                // No access URL - show token input
+                                console.log('⚠️ No SimpleFin access URL found, showing token input');
+                                document.getElementById('simplefin-token-input').style.display = 'block';
+                                document.getElementById('simplefin-account-selection').style.display = 'none';
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        console.error('❌ Error checking SimpleFin status:', err);
+                        // On error, show token input
+                        document.getElementById('simplefin-token-input').style.display = 'block';
+                        document.getElementById('simplefin-account-selection').style.display = 'none';
+                    });
+            }
+        }
+
         function loadCreditSetup() {
             // Check status first
             fetch('/api/lunchflow/credit-card-status')
                 .then(res => res.json())
                 .then(status => {
-                    const apiKeySetup = document.getElementById('api-key-setup');
-                    const accountSelection = document.getElementById('account-selection');
+                    const providerSelection = document.getElementById('provider-selection');
+                    const lunchflowSetup = document.getElementById('lunchflow-setup');
+                    const simplefinSetup = document.getElementById('simplefin-setup');
                     const setupScreen = document.getElementById('credit-setup-screen');
                     const managementScreen = document.getElementById('credit-management-screen');
-                    const accountsList = document.getElementById('accounts-list');
 
                     if (status.configured && status.pocketCreated) {
                         // Fully configured - show management interface
@@ -1812,41 +2016,78 @@
                         // Account selected but pocket not created - show balance sync modal
                         setupScreen.style.display = 'block';
                         managementScreen.style.display = 'none';
-                        apiKeySetup.style.display = 'none';
-                        accountSelection.style.display = 'none';
+                        providerSelection.style.display = 'none';
+                        lunchflowSetup.style.display = 'none';
+                        simplefinSetup.style.display = 'none';
+
                         // Restore pending account info and show balance sync modal
                         pendingAccountId = status.accountId;
                         pendingAccountName = status.accountName;
-                        // Fetch balance and show sync modal
-                        fetch(`/api/lunchflow/get-balance/${status.accountId}`)
-                            .then(res => res.json())
-                            .then(balanceData => {
-                                if (balanceData.error) {
-                                    showBalanceSyncModal(null);
-                                } else {
-                                    const balanceAmount = balanceData.balance?.amount || 0;
-                                    // Balance is already in dollars, not cents
-                                    const balance = Math.abs(balanceAmount);
-                                    showBalanceSyncModal(balance);
-                                }
-                            })
-                            .catch(err => {
-                                console.error('Error fetching balance:', err);
+                        selectedProvider = status.provider || 'lunchflow';
+
+                        // Fetch balance based on provider
+                        if (status.provider === 'simplefin') {
+                            // For SimpleFin, get access URL and fetch balance
+                            if (status.hasSimplefinAccessUrl) {
+                                fetch('/api/simplefin/get-access-url')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        if (data.success && data.accessUrl) {
+                                            simpleFinAccessUrl = data.accessUrl;
+                                            // Fetch balance
+                                            return fetch('/api/simplefin/get-balance', {
+                                                method: 'POST',
+                                                headers: {'Content-Type': 'application/json'},
+                                                body: JSON.stringify({
+                                                    accountId: status.accountId,
+                                                    accessUrl: simpleFinAccessUrl
+                                                })
+                                            });
+                                        } else {
+                                            throw new Error('No access URL found');
+                                        }
+                                    })
+                                    .then(res => res.json())
+                                    .then(balanceData => {
+                                        if (balanceData.error) {
+                                            showBalanceSyncModal(null);
+                                        } else {
+                                            const balance = Math.abs(balanceData.balance?.amount || 0);
+                                            showBalanceSyncModal(balance);
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.error('Error fetching SimpleFin balance:', err);
+                                        showBalanceSyncModal(null);
+                                    });
+                            } else {
                                 showBalanceSyncModal(null);
-                            });
-                    } else if (status.hasApiKey) {
-                        // API key configured but no account selected - show account selection
-                        setupScreen.style.display = 'block';
-                        managementScreen.style.display = 'none';
-                        apiKeySetup.style.display = 'none';
-                        accountSelection.style.display = 'block';
-                        loadLunchFlowAccounts();
+                            }
+                        } else {
+                            // LunchFlow balance fetch
+                            fetch(`/api/lunchflow/get-balance/${status.accountId}`)
+                                .then(res => res.json())
+                                .then(balanceData => {
+                                    if (balanceData.error) {
+                                        showBalanceSyncModal(null);
+                                    } else {
+                                        const balanceAmount = balanceData.balance?.amount || 0;
+                                        const balance = Math.abs(balanceAmount);
+                                        showBalanceSyncModal(balance);
+                                    }
+                                })
+                                .catch(err => {
+                                    console.error('Error fetching balance:', err);
+                                    showBalanceSyncModal(null);
+                                });
+                        }
                     } else {
-                        // No API key - show setup instructions
+                        // Not configured - show provider selection
                         setupScreen.style.display = 'block';
                         managementScreen.style.display = 'none';
-                        apiKeySetup.style.display = 'block';
-                        accountSelection.style.display = 'none';
+                        providerSelection.style.display = 'block';
+                        lunchflowSetup.style.display = 'none';
+                        simplefinSetup.style.display = 'none';
                     }
                 })
                 .catch(err => {
@@ -1985,17 +2226,193 @@
             modal.style.display = 'flex';
         }
 
+        // SimpleFin Functions
+        function claimSimpleFinToken() {
+            const token = document.getElementById('simplefin-token-field').value.trim();
+            if (!token) {
+                appAlert('Please enter a SimpleFin token', 'Error');
+                return;
+            }
+
+            console.log('Claiming SimpleFin setup token...');
+            fetch('/api/simplefin/claim-token', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({token})
+            })
+            .then(res => res.json())
+            .then(data => {
+                console.log('SimpleFin claim token result:', data);
+                if (data.error) {
+                    appAlert('Error claiming token: ' + data.error, 'Error');
+                    return;
+                }
+                console.log('✅ SimpleFin token claimed successfully, access URL stored');
+                simpleFinAccessUrl = data.accessUrl;
+                // Now fetch accounts
+                loadSimpleFinAccounts();
+            })
+            .catch(err => {
+                console.error('❌ Error claiming SimpleFin token:', err);
+                appAlert('Error: ' + err.message, 'Error');
+            });
+        }
+
+        function loadSimpleFinAccounts() {
+            document.getElementById('simplefin-token-input').style.display = 'none';
+            document.getElementById('simplefin-account-selection').style.display = 'block';
+
+            const accountsList = document.getElementById('simplefin-accounts-list');
+            accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;"><div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>Loading accounts...</div>';
+
+            fetch('/api/simplefin/accounts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({accessUrl: simpleFinAccessUrl})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+                        <strong>Error loading accounts:</strong> ${data.error}
+                    </div>`;
+                    return;
+                }
+
+                const accounts = data.accounts || [];
+                if (accounts.length === 0) {
+                    accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No accounts found.</div>';
+                    return;
+                }
+
+                let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                accounts.forEach(account => {
+                    const accountId = account.id;
+                    const accountName = account.name || 'Unknown Account';
+                    const org = account.org || '';
+                    const currency = account.currency || '';
+                    const balance = account.balance || 0;
+
+                    html += `
+                        <div style="background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s;"
+                             onclick="selectSimpleFinAccount('${accountId}', '${accountName.replace(/'/g, "\\'")}')"
+                             onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
+                             onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+                                <div style="width: 40px; height: 40px; background: #e9ecef; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${accountName}</div>
+                                    <div style="font-size: 13px; color: var(--text-light); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                        ${org ? `<span>${org}</span>` : ''}
+                                        ${currency ? `<span>• ${currency}</span>` : ''}
+                                        ${balance ? `<span>• Balance: ${fmt(Math.abs(balance))}</span>` : ''}
+                                    </div>
+                                </div>
+                                <div style="font-size: 24px; color: var(--simple-blue);">→</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                accountsList.innerHTML = html;
+            })
+            .catch(err => {
+                accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+                    <strong>Error:</strong> ${err.message}
+                </div>`;
+            });
+        }
+
+        function selectSimpleFinAccount(accountId, accountName) {
+            pendingAccountId = accountId;
+            pendingAccountName = accountName;
+
+            // Save the account selection
+            fetch('/api/simplefin/set-credit-card', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    accountId: pendingAccountId,
+                    accountName: pendingAccountName,
+                    accessUrl: simpleFinAccessUrl
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    appAlert('Error saving account: ' + data.error, 'Error');
+                    return;
+                }
+
+                // Fetch balance and show sync confirmation modal
+                fetch('/api/simplefin/get-balance', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        accountId: pendingAccountId,
+                        accessUrl: simpleFinAccessUrl
+                    })
+                })
+                .then(res => res.json())
+                .then(balanceData => {
+                    if (balanceData.error) {
+                        showBalanceSyncModal(null);
+                    } else {
+                        const balance = Math.abs(balanceData.balance?.amount || 0);
+                        showBalanceSyncModal(balance);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error fetching balance:', err);
+                    showBalanceSyncModal(null);
+                });
+            })
+            .catch(err => {
+                appAlert('Error: ' + err.message, 'Error');
+            });
+        }
+
+        function disconnectSimpleFin() {
+            if (!confirm('Are you sure you want to disconnect SimpleFin? This will remove all SimpleFin accounts and return any pocket funds to your Checking account.')) {
+                return;
+            }
+
+            fetch('/api/simplefin/disconnect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    appAlert(data.message || 'SimpleFin disconnected successfully', 'Success');
+                    // Refresh the page to show clean state
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    appAlert(data.error || 'Failed to disconnect SimpleFin', 'Error');
+                }
+            })
+            .catch(err => {
+                console.error('Error disconnecting SimpleFin:', err);
+                appAlert('Error: ' + err.message, 'Error');
+            });
+        }
+
         function handleBalanceSync(syncBalance) {
             const modal = document.getElementById('balance-sync-modal');
             modal.style.display = 'none';
-            
+
             if (!pendingAccountId) {
                 appAlert('Error: No account selected', 'Error');
                 return;
             }
-            
+
+            // Determine which API to use based on selected provider
+            const endpoint = selectedProvider === 'simplefin'
+                ? '/api/simplefin/create-pocket-with-balance'
+                : '/api/lunchflow/create-pocket-with-balance';
+
             // Create pocket with or without balance sync
-            fetch('/api/lunchflow/create-pocket-with-balance', {
+            fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -2035,6 +2452,13 @@
         let creditCardRefreshInterval = null;
 
         function loadCreditManagement(status) {
+            // Show/hide invalid token warning for SimpleFin
+            if (status.provider === 'simplefin' && status.simplefinTokenInvalid) {
+                document.getElementById('credit-management-invalid-warning').style.display = 'block';
+            } else {
+                document.getElementById('credit-management-invalid-warning').style.display = 'none';
+            }
+
             // Update account info
             document.getElementById('mgmt-account-name').textContent = status.accountName || 'Unknown';
             document.getElementById('mgmt-account-id').textContent = status.accountId || 'N/A';
@@ -2096,67 +2520,30 @@
                         appAlert('No credit card account configured', 'Error');
                         return;
                     }
-                    
-                    // Get current balance to show in warning
-                    fetch(`/api/lunchflow/get-balance/${status.accountId}`)
-                        .then(res => res.json())
-                        .then(balanceData => {
-                            if (balanceData.error) {
-                                appAlert('Error fetching balance: ' + balanceData.error, 'Error');
-                                return;
-                            }
-                            
-                            const currentBalance = Math.abs(balanceData.balance?.amount || 0);
-                            const warningMessage = `⚠️ WARNING: This will sync your credit card pocket balance to match your current credit card balance.\n\n` +
-                                                  `Current Credit Card Balance: ${fmt(currentBalance)}\n\n` +
-                                                  `This will move money from Safe-to-Spend to the pocket (or vice versa) to match this amount.\n\n` +
-                                                  `Do you want to continue?`;
-                            
-                            appConfirm(warningMessage, 'Sync Balance', { confirmText: 'Continue' }).then(confirmed => {
-                                if (!confirmed) return;
-                                fetch('/api/lunchflow/sync-balance', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ accountId: status.accountId })
-                                })
-                                .then(res => res.json())
-                                .then(data => {
-                                    if (data.error) {
-                                        appAlert('Error syncing balance: ' + data.error, 'Error');
-                                    } else {
-                                        appAlert(`✅ Balance synced successfully!\n\nPrevious: ${fmt(data.previousBalance)}\nNew: ${fmt(data.targetBalance)}`, 'Success');
-                                        loadCreditSetup(); // Reload to show updated balance
-                                        if (typeof loadGoals === 'function') loadGoals(true);
-                                        if (typeof initBalances === 'function') initBalances(true);
-                                    }
-                                })
-                                .catch(err => appAlert('Error: ' + err.message, 'Error'));
-                            });
+
+                    const provider = status.provider || 'lunchflow';
+                    const syncEndpoint = provider === 'simplefin' ? '/api/simplefin/sync-balance' : '/api/lunchflow/sync-balance';
+
+                    appConfirm('⚠️ WARNING: This will sync your credit card pocket balance to match your current credit card balance. This will move money from Safe-to-Spend to the pocket (or vice versa).\n\nDo you want to continue?', 'Sync Balance', { confirmText: 'Continue' }).then(confirmed => {
+                        if (!confirmed) return;
+                        fetch(syncEndpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ accountId: status.accountId })
                         })
-                        .catch(err => {
-                            console.error('Error fetching balance:', err);
-                            // Still allow sync without showing balance
-                            appConfirm('⚠️ WARNING: This will sync your credit card pocket balance to match your current credit card balance. This will move money from Safe-to-Spend to the pocket (or vice versa).\n\nDo you want to continue?', 'Sync Balance', { confirmText: 'Continue' }).then(confirmed => {
-                                if (!confirmed) return;
-                                fetch('/api/lunchflow/sync-balance', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ accountId: status.accountId })
-                                })
-                                .then(res => res.json())
-                                .then(data => {
-                                    if (data.error) {
-                                        appAlert('Error syncing balance: ' + data.error, 'Error');
-                                    } else {
-                                        appAlert(`✅ Balance synced successfully!\n\nPrevious: ${fmt(data.previousBalance)}\nNew: ${fmt(data.targetBalance)}`, 'Success');
-                                        loadCreditSetup();
-                                        if (typeof loadGoals === 'function') loadGoals(true);
-                                        if (typeof initBalances === 'function') initBalances(true);
-                                    }
-                                })
-                                .catch(err => appAlert('Error: ' + err.message, 'Error'));
-                            });
-                        });
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.error) {
+                                appAlert('Error syncing balance: ' + data.error, 'Error');
+                            } else {
+                                appAlert(`✅ Balance synced successfully!\n\nPrevious: ${fmt(data.previousBalance)}\nNew: ${fmt(data.targetBalance)}`, 'Success');
+                                loadCreditSetup();
+                                if (typeof loadGoals === 'function') loadGoals(true);
+                                if (typeof initBalances === 'function') initBalances(true);
+                            }
+                        })
+                        .catch(err => appAlert('Error: ' + err.message, 'Error'));
+                    });
                 });
         }
 
@@ -2167,39 +2554,47 @@
                                   `3. Remove all transaction history for this account\n` +
                                   `4. Require you to select a new account and create a new pocket\n\n` +
                                   `Are you sure you want to change accounts?`;
-            
+
             appConfirm(warningMessage, 'Change Account', { confirmText: 'Change Account', danger: true }).then(confirmed => {
                 if (!confirmed) return;
-                fetch('/api/lunchflow/change-account', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        appAlert('Error changing account: ' + data.error, 'Error');
-                    } else {
-                        // Clear any pending account state
-                        pendingAccountId = null;
-                        pendingAccountName = null;
-                        
-                        // Hide any visible balance sync modal
-                        const balanceSyncModal = document.getElementById('balance-sync-modal');
-                        if (balanceSyncModal) {
-                            balanceSyncModal.style.display = 'none';
-                        }
-                        
-                        appAlert('✅ Account changed successfully!\n\nThe pocket has been deleted and funds returned to Safe-to-Spend. Please select a new account.', 'Success');
-                        // Small delay to ensure backend state is committed before reloading
-                        setTimeout(() => {
-                            loadCreditSetup();
-                            if (typeof loadGoals === 'function') loadGoals(true);
-                            if (typeof initBalances === 'function') initBalances(true);
-                        }, 100);
-                    }
-                })
-                .catch(err => appAlert('Error: ' + err.message, 'Error'));
+
+                // Check provider to use correct endpoint
+                fetch('/api/lunchflow/credit-card-status')
+                    .then(res => res.json())
+                    .then(status => {
+                        const provider = status.provider || 'lunchflow';
+                        const endpoint = provider === 'simplefin' ? '/api/simplefin/change-account' : '/api/lunchflow/change-account';
+
+                        fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.error) {
+                                appAlert('Error changing account: ' + data.error, 'Error');
+                            } else {
+                                pendingAccountId = null;
+                                pendingAccountName = null;
+                                selectedProvider = null;
+                                simpleFinAccessUrl = null;
+
+                                const balanceSyncModal = document.getElementById('balance-sync-modal');
+                                if (balanceSyncModal) {
+                                    balanceSyncModal.style.display = 'none';
+                                }
+
+                                appAlert('✅ Account changed successfully!\n\nThe pocket has been deleted and funds returned to Safe-to-Spend. Please select a new account.', 'Success');
+                                setTimeout(() => {
+                                    loadCreditSetup();
+                                    if (typeof loadGoals === 'function') loadGoals(true);
+                                    if (typeof initBalances === 'function') initBalances(true);
+                                }, 100);
+                            }
+                        })
+                        .catch(err => appAlert('Error: ' + err.message, 'Error'));
+                    });
             });
         }
 
@@ -2211,29 +2606,40 @@
                                   `4. Remove all credit card configuration\n\n` +
                                   `You will need to set up credit card tracking again from scratch if you want to use it later.\n\n` +
                                   `Are you absolutely sure you want to stop tracking?`;
-            
+
             appConfirm(warningMessage, 'Stop Tracking', { confirmText: 'Stop Tracking', danger: true }).then(confirmed => {
                 if (!confirmed) return;
-                fetch('/api/lunchflow/stop-tracking', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        appAlert('Error stopping tracking: ' + data.error, 'Error');
-                    } else {
-                        appAlert('✅ Credit card tracking stopped.\n\nThe pocket has been deleted and funds returned to Safe-to-Spend.', 'Success');
-                        // Clean up intervals
-                        cleanupCreditCardIntervals();
-                        // Reload to show setup screen
-                        loadCreditSetup();
-                        if (typeof loadGoals === 'function') loadGoals(true);
-                        if (typeof initBalances === 'function') initBalances(true);
-                    }
-                })
-                .catch(err => appAlert('Error: ' + err.message, 'Error'));
+
+                // Check provider to use correct endpoint
+                fetch('/api/lunchflow/credit-card-status')
+                    .then(res => res.json())
+                    .then(status => {
+                        const provider = status.provider || 'lunchflow';
+                        const endpoint = provider === 'simplefin' ? '/api/simplefin/stop-tracking' : '/api/lunchflow/stop-tracking';
+
+                        fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.error) {
+                                appAlert('Error stopping tracking: ' + data.error, 'Error');
+                            } else {
+                                appAlert('✅ Credit card tracking stopped.\n\nThe pocket has been deleted and funds returned to Safe-to-Spend.', 'Success');
+                                cleanupCreditCardIntervals();
+                                selectedProvider = null;
+                                simpleFinAccessUrl = null;
+                                pendingAccountId = null;
+                                pendingAccountName = null;
+                                loadCreditSetup();
+                                if (typeof loadGoals === 'function') loadGoals(true);
+                                if (typeof initBalances === 'function') initBalances(true);
+                            }
+                        })
+                        .catch(err => appAlert('Error: ' + err.message, 'Error'));
+                    });
             });
         }
 

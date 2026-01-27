@@ -14,6 +14,14 @@ URL = "https://api.trycrew.com/willow/graphql"
 # In app.py
 DB_FILE = os.environ.get("DB_FILE", "savings_data.db")
 
+# Global flag to ensure background thread starts only once
+_background_thread_started = False
+_background_thread_lock = threading.Lock()
+
+# Track last SimpleFin sync time (limit to once per hour)
+_last_simplefin_sync = 0
+_simplefin_sync_interval = 3600  # 1 hour in seconds
+
 # --- CACHING SYSTEM ---
 class SimpleCache:
     def __init__(self, ttl_seconds=300):
@@ -83,22 +91,111 @@ def init_db():
         print("Migrating DB: Adding sort_order column...")
         c.execute("ALTER TABLE pocket_links ADD COLUMN sort_order INTEGER DEFAULT 0")
     
-    # Store credit card account selection from LunchFlow
+    # SimpleFin global configuration (one access URL for all accounts)
+    c.execute('''CREATE TABLE IF NOT EXISTS simplefin_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        access_url TEXT NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # Store credit card account selection from LunchFlow or SimpleFin
     c.execute('''CREATE TABLE IF NOT EXISTS credit_card_config (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         account_id TEXT UNIQUE NOT NULL,
         account_name TEXT,
         pocket_id TEXT,
+        provider TEXT DEFAULT 'lunchflow',
+        simplefin_access_url TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
-    
+
     # Migration: Add pocket_id column if it doesn't exist
     try:
         c.execute("SELECT pocket_id FROM credit_card_config LIMIT 1")
     except sqlite3.OperationalError:
         print("Migrating DB: Adding pocket_id column to credit_card_config...")
         c.execute("ALTER TABLE credit_card_config ADD COLUMN pocket_id TEXT")
-    
+
+    # Migration: Add provider column if it doesn't exist
+    try:
+        c.execute("SELECT provider FROM credit_card_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding provider column to credit_card_config...")
+        c.execute("ALTER TABLE credit_card_config ADD COLUMN provider TEXT DEFAULT 'lunchflow'")
+
+    # Migration: Add simplefin_access_url column if it doesn't exist (temporary, will be removed)
+    try:
+        c.execute("SELECT simplefin_access_url FROM credit_card_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding simplefin_access_url column to credit_card_config...")
+        c.execute("ALTER TABLE credit_card_config ADD COLUMN simplefin_access_url TEXT")
+
+    # Migration: Move simplefin_access_url to new simplefin_config table
+    # First check if credit_card_config has the old column with data
+    has_old_data = False
+    old_access_url = None
+    try:
+        c.execute("SELECT simplefin_access_url FROM credit_card_config WHERE simplefin_access_url IS NOT NULL LIMIT 1")
+        old_url_row = c.fetchone()
+        if old_url_row and old_url_row[0]:
+            has_old_data = True
+            old_access_url = old_url_row[0]
+            print(f"📦 Found SimpleFin access URL in old location: {old_access_url[:30]}...", flush=True)
+    except sqlite3.OperationalError:
+        # Column doesn't exist, no migration needed
+        pass
+
+    # If we have old data, migrate it to simplefin_config
+    if has_old_data and old_access_url:
+        # Check if simplefin_config already has data
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        existing_url = c.fetchone()
+        if not existing_url:
+            print("🔄 Migrating SimpleFin access URL to new table...", flush=True)
+            c.execute("INSERT INTO simplefin_config (access_url) VALUES (?)", (old_access_url,))
+            conn.commit()
+            print("✅ Migrated SimpleFin access URL successfully", flush=True)
+        else:
+            print("⚠️ SimpleFin config already exists, skipping migration", flush=True)
+
+    # Migration: Remove simplefin_access_url column from credit_card_config (recreate table)
+    try:
+        c.execute("SELECT simplefin_access_url FROM credit_card_config LIMIT 1")
+        # Column exists, need to remove it by recreating table
+        print("🔄 Removing simplefin_access_url column from credit_card_config...")
+
+        # Create new table without simplefin_access_url
+        c.execute('''CREATE TABLE IF NOT EXISTS credit_card_config_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT UNIQUE NOT NULL,
+            account_name TEXT,
+            pocket_id TEXT,
+            provider TEXT DEFAULT 'lunchflow',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''')
+
+        # Copy data
+        c.execute('''INSERT INTO credit_card_config_new (id, account_id, account_name, pocket_id, provider, created_at)
+                     SELECT id, account_id, account_name, pocket_id, provider, created_at FROM credit_card_config''')
+
+        # Drop old table and rename new one
+        c.execute("DROP TABLE credit_card_config")
+        c.execute("ALTER TABLE credit_card_config_new RENAME TO credit_card_config")
+
+        print("✅ Removed simplefin_access_url column successfully")
+    except sqlite3.OperationalError:
+        # Column doesn't exist, table is already in new format
+        pass
+
+    # Migration: Add is_valid column to simplefin_config if it doesn't exist
+    try:
+        c.execute("SELECT is_valid FROM simplefin_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding is_valid column to simplefin_config...")
+        c.execute("ALTER TABLE simplefin_config ADD COLUMN is_valid INTEGER DEFAULT 1")
+        conn.commit()
+
     # Store seen credit card transactions to avoid duplicates
     c.execute('''CREATE TABLE IF NOT EXISTS credit_card_transactions (
         transaction_id TEXT PRIMARY KEY,
@@ -1260,7 +1357,8 @@ def api_transactions():
         # Merge and sort by date
         if "transactions" in result:
             all_txs = result["transactions"] + credit_card_txs
-            all_txs.sort(key=lambda x: x.get("date", ""), reverse=True)
+            # Handle None dates by treating them as empty strings for sorting
+            all_txs.sort(key=lambda x: x.get("date") or "", reverse=True)
             result["transactions"] = all_txs
     
     except Exception as e:
@@ -1393,20 +1491,22 @@ def api_set_credit_card():
     data = request.json
     account_id = data.get('accountId')
     account_name = data.get('accountName', '')
-    
+
     if not account_id:
         return jsonify({"error": "accountId is required"}), 400
-    
+
     try:
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        
-        # Store the account info without pocket_id yet (pocket will be created after balance sync decision)
-        c.execute("INSERT OR REPLACE INTO credit_card_config (account_id, account_name, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)", 
+
+        # Store the account info with provider='lunchflow'
+        c.execute("""INSERT OR REPLACE INTO credit_card_config
+                     (account_id, account_name, provider, created_at)
+                     VALUES (?, ?, 'lunchflow', CURRENT_TIMESTAMP)""",
                   (account_id, account_name))
         conn.commit()
         conn.close()
-        
+
         cache.clear()
         return jsonify({"success": True, "message": "Credit card account saved", "needsBalanceSync": True})
     except Exception as e:
@@ -1502,16 +1602,23 @@ def api_create_pocket_with_balance():
 
 @app.route('/api/lunchflow/credit-card-status')
 def api_credit_card_status():
-    """Get the current credit card account configuration"""
+    """Get the current credit card account configuration (unified for both providers)"""
     api_key = os.environ.get("LUNCHFLOW_API_KEY")
-    
+
     try:
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        c.execute("SELECT account_id, account_name, pocket_id, created_at FROM credit_card_config LIMIT 1")
+        c.execute("SELECT account_id, account_name, pocket_id, created_at, provider FROM credit_card_config LIMIT 1")
         row = c.fetchone()
+
+        # Check if SimpleFin access URL exists and is valid
+        c.execute("SELECT access_url, is_valid FROM simplefin_config LIMIT 1")
+        simplefin_url = c.fetchone()
+        has_simplefin_access_url = bool(simplefin_url and simplefin_url[0])
+        simplefin_token_invalid = bool(simplefin_url and simplefin_url[0] and simplefin_url[1] == 0)
+
         conn.close()
-        
+
         result = {
             "hasApiKey": bool(api_key),
             "configured": False,
@@ -1519,17 +1626,26 @@ def api_credit_card_status():
             "accountId": None,
             "accountName": None,
             "pocketId": None,
-            "createdAt": None
+            "createdAt": None,
+            "provider": None,
+            "hasSimplefinAccessUrl": has_simplefin_access_url,
+            "simplefinTokenInvalid": simplefin_token_invalid
         }
-        
+
         if row:
-            result["configured"] = True
-            result["accountId"] = row[0]
-            result["accountName"] = row[1]
-            result["pocketId"] = row[2]
-            result["pocketCreated"] = bool(row[2])
-            result["createdAt"] = row[3]
-        
+            account_id = row[0]
+            # Check if this is a real account or just a temp record from token claim
+            is_temp_record = account_id == 'temp_simplefin'
+
+            if not is_temp_record:
+                result["configured"] = True
+                result["accountId"] = account_id
+                result["accountName"] = row[1]
+                result["pocketId"] = row[2]
+                result["pocketCreated"] = bool(row[2])
+                result["createdAt"] = row[3]
+                result["provider"] = row[4] if len(row) > 4 else "lunchflow"
+
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1761,96 +1877,119 @@ def api_stop_tracking():
 
 # --- CREDIT CARD TRANSACTION SYNCING ---
 def check_credit_card_transactions():
-    """Check for new credit card transactions and update balance"""
+    """Check for new credit card transactions and update balance (supports both LunchFlow and SimpleFin)"""
     try:
-        api_key = os.environ.get("LUNCHFLOW_API_KEY")
-        if not api_key:
-            return
-        
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        
-        # Get credit card account config
-        c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE pocket_id IS NOT NULL LIMIT 1")
+
+        # Get credit card account config with provider info
+        c.execute("SELECT account_id, pocket_id, provider FROM credit_card_config WHERE pocket_id IS NOT NULL LIMIT 1")
         row = c.fetchone()
-        
+
         if not row:
+            # Debug: Check if there are any configs without pockets
+            c.execute("SELECT account_id, provider FROM credit_card_config")
+            all_configs = c.fetchall()
+            if all_configs:
+                print(f"⚠️ Found credit card configs but none have pocket_id set: {all_configs}")
             conn.close()
             return
-        
-        account_id, pocket_id = row
-        
-        # Get when credit card was added (only get transactions after this date)
+
+        account_id, pocket_id, provider = row
+        print(f"🔍 Checking transactions for {provider} account {account_id}, pocket {pocket_id}", flush=True)
+
+        # Handle based on provider
+        if provider == 'lunchflow':
+            api_key = os.environ.get("LUNCHFLOW_API_KEY")
+            if not api_key:
+                print("⚠️ LUNCHFLOW_API_KEY not set")
+                conn.close()
+                return
+            check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key)
+        elif provider == 'simplefin':
+            # Check if enough time has passed since last SimpleFin sync (1 hour)
+            global _last_simplefin_sync
+            current_time = time.time()
+            time_since_last_sync = current_time - _last_simplefin_sync
+
+            if time_since_last_sync < _simplefin_sync_interval:
+                minutes_remaining = int((_simplefin_sync_interval - time_since_last_sync) / 60)
+                print(f"⏰ SimpleFin sync skipped (next sync in {minutes_remaining} minutes)", flush=True)
+                conn.close()
+                return
+
+            # Get SimpleFin access URL from global config
+            c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+            url_row = c.fetchone()
+            if not url_row or not url_row[0]:
+                print(f"⚠️ SimpleFin access URL not found in simplefin_config", flush=True)
+                conn.close()
+                return
+            simplefin_access_url = url_row[0]
+            print(f"✅ Calling check_simplefin_transactions with access_url length: {len(simplefin_access_url)}", flush=True)
+            check_simplefin_transactions(conn, c, account_id, pocket_id, simplefin_access_url)
+
+            # Update last sync time
+            _last_simplefin_sync = current_time
+
+        conn.close()
+    except Exception as e:
+        print(f"❌ Error checking credit card transactions: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+def check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key):
+    """Check LunchFlow for new transactions"""
+    try:
+        # Get when credit card was added
         c.execute("SELECT created_at FROM credit_card_config WHERE account_id = ?", (account_id,))
         config_row = c.fetchone()
         added_date = config_row[0] if config_row else None
-        
+
         # Fetch transactions from LunchFlow
         headers = {"x-api-key": api_key, "accept": "application/json"}
-        # Try both URL formats
         try:
             response = requests.get(f"https://www.lunchflow.app/api/v1/accounts/{account_id}/transactions", headers=headers, timeout=30)
         except:
             response = requests.get(f"https://lunchflow.com/api/v1/accounts/{account_id}/transactions", headers=headers, timeout=30)
-        
+
         if response.status_code != 200:
-            conn.close()
             return
-        
+
         data = response.json()
         transactions = data.get("transactions", [])
-        
+
         # Get list of already seen transaction IDs
         c.execute("SELECT transaction_id FROM credit_card_transactions WHERE account_id = ?", (account_id,))
         seen_ids = {row[0] for row in c.fetchall()}
-        
-        # TESTING MODE: Allow all past transactions (not just those after credit card was added)
-        # TODO: Revert this for production - uncomment the date filter below
-        # Filter transactions to only include those after credit card was added
-        # if added_date:
-        #     try:
-        #         added_datetime = datetime.fromisoformat(added_date.replace('Z', '+00:00'))
-        #         transactions = [tx for tx in transactions if tx.get("date") and datetime.fromisoformat(tx["date"].replace('Z', '+00:00')) >= added_datetime]
-        #     except:
-        #         pass  # If date parsing fails, include all transactions
-        
+
         new_transactions = []
-        total_amount = 0.0
-        
         for tx in transactions:
             tx_id = tx.get("id")
             if not tx_id or tx_id in seen_ids:
                 continue
-            
-            # Store new transaction
-            amount = tx.get("amount", 0)  # LunchFlow already returns dollars, not cents
-            total_amount += amount
-            
-            # Use INSERT OR IGNORE to prevent duplicates at database level (safety net)
-            c.execute("""INSERT OR IGNORE INTO credit_card_transactions 
+
+            amount = tx.get("amount", 0)
+            c.execute("""INSERT OR IGNORE INTO credit_card_transactions
                          (transaction_id, account_id, amount, date, merchant, description, is_pending)
                          VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                     (tx_id, account_id, amount, tx.get("date"), tx.get("merchant"), 
+                     (tx_id, account_id, amount, tx.get("date"), tx.get("merchant"),
                       tx.get("description"), 1 if tx.get("isPending") else 0))
-            
-            # Only add to new_transactions if the row was actually inserted
+
             if c.rowcount > 0:
                 new_transactions.append(tx)
-        
+
         conn.commit()
-        
-        # Always update the pocket balance (every 30 seconds), not just when there are new transactions
+
+        # Update pocket balance
         if pocket_id:
-            # Get current balance from LunchFlow
             balance_headers = {"x-api-key": api_key, "accept": "application/json"}
             balance_response = requests.get(f"https://www.lunchflow.app/api/v1/accounts/{account_id}/balance", headers=balance_headers, timeout=30)
             if balance_response.status_code == 200:
                 balance_data = balance_response.json()
-                # Balance is already in dollars
                 balance_amount = balance_data.get("balance", {}).get("amount", 0)
                 target_balance = abs(balance_amount)
-                
-                # Get current pocket balance
+
                 headers_crew = get_crew_headers()
                 if headers_crew:
                     query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
@@ -1859,15 +1998,14 @@ def check_credit_card_transactions():
                         "variables": {"id": pocket_id},
                         "query": query_string
                     })
-                    
+
                     crew_data = response_crew.json()
                     current_balance = 0
                     try:
                         current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
                     except:
                         pass
-                    
-                    # Calculate difference and move money
+
                     difference = target_balance - current_balance
                     all_subs = get_subaccounts_list()
                     if "error" not in all_subs:
@@ -1876,24 +2014,204 @@ def check_credit_card_transactions():
                             if sub["name"] == "Checking":
                                 checking_subaccount_id = sub["id"]
                                 break
-                        
+
                         if checking_subaccount_id and abs(difference) > 0.01:
                             if difference > 0:
-                                move_money(checking_subaccount_id, pocket_id, str(difference), f"Credit card transaction sync")
+                                move_money(checking_subaccount_id, pocket_id, str(difference), f"LunchFlow credit card sync")
                             else:
-                                move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"Credit card transaction sync")
-                    
-                    cache.clear()
-        
-        conn.close()
-        
+                                move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"LunchFlow credit card sync")
+                        cache.clear()
+
         if new_transactions:
-            print(f"✅ Found {len(new_transactions)} new credit card transactions")
+            print(f"✅ Found {len(new_transactions)} new LunchFlow credit card transactions")
         else:
-            print(f"🔄 Credit card balance checked (no new transactions)")
-        
+            print(f"🔄 LunchFlow credit card balance checked (no new transactions)")
+
     except Exception as e:
-        print(f"Error checking credit card transactions: {e}")
+        print(f"Error checking LunchFlow transactions: {e}")
+
+def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url):
+    """Check SimpleFin for new transactions"""
+    try:
+        print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id}", flush=True)
+
+        # Calculate date range: last 90 days to now
+        import time
+        end_timestamp = int(time.time())
+        start_timestamp = end_timestamp - (90 * 24 * 60 * 60)  # 90 days ago
+
+        # Fetch account data from SimpleFin with date range for transactions
+        # SimpleFin requires start-date and end-date to return transaction data
+        params = {
+            'start-date': start_timestamp,
+            'end-date': end_timestamp,
+            'pending': 1  # Include pending transactions
+        }
+        print(f"📅 Fetching transactions from {start_timestamp} to {end_timestamp}", flush=True)
+        response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
+        if response.status_code != 200:
+            print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
+
+            # If 403, mark token as invalid in database
+            if response.status_code == 403:
+                print("🚫 SimpleFin token has been revoked or is invalid", flush=True)
+                c.execute("UPDATE simplefin_config SET is_valid = 0")
+                conn.commit()
+
+            return
+
+        data = response.json()
+        print(f"✅ SimpleFin API response received, found {len(data.get('accounts', []))} accounts")
+
+        # Find the matching account and get transactions
+        target_account = None
+        transactions = []
+        for account in data.get("accounts", []):
+            acc_id = account.get("id")
+            print(f"  - Account: {acc_id} ({account.get('name', 'Unknown')})")
+            if acc_id == account_id:
+                target_account = account
+                transactions = account.get("transactions", [])
+                print(f"  ✅ MATCH! This is our tracked account")
+                break
+
+        if not target_account:
+            print(f"❌ SimpleFin account {account_id} not found in response")
+            all_account_ids = [acc.get("id") for acc in data.get("accounts", [])]
+            print(f"   Available account IDs: {all_account_ids}")
+            return
+
+        print(f"✅ SimpleFin: Found {len(transactions)} total transactions for account {account_id}")
+
+        # Get list of already seen transaction IDs
+        c.execute("SELECT transaction_id FROM credit_card_transactions WHERE account_id = ?", (account_id,))
+        seen_ids = {row[0] for row in c.fetchall()}
+        print(f"  Already have {len(seen_ids)} transactions in database")
+
+        new_transactions = []
+        for tx in transactions:
+            tx_id = tx.get("id")
+            if not tx_id:
+                print(f"  ⚠️ Skipping transaction with no ID: {tx}")
+                continue
+            if tx_id in seen_ids:
+                continue
+
+            # SimpleFin amounts may be strings, convert to float
+            amount_str = tx.get("amount", "0")
+            try:
+                amount = abs(float(amount_str))  # SimpleFin amounts are in dollars, negative for debits
+            except (ValueError, TypeError):
+                print(f"  ⚠️ Could not parse transaction amount '{amount_str}', using 0")
+                amount = 0
+
+            description = tx.get("description", "")
+            posted = tx.get("posted")  # Unix timestamp
+            transacted = tx.get("transacted")  # Unix timestamp when transaction occurred
+            pending = not posted  # If no posted date, it's pending
+
+            # Convert Unix timestamp to ISO date string if available
+            date_str = None
+            if posted:
+                try:
+                    from datetime import datetime
+                    date_str = datetime.fromtimestamp(int(posted)).isoformat()
+                except:
+                    date_str = str(posted)
+            elif transacted:
+                try:
+                    from datetime import datetime
+                    date_str = datetime.fromtimestamp(int(transacted)).isoformat()
+                except:
+                    date_str = str(transacted)
+
+            print(f"  💳 New transaction: ${amount} - {description} (ID: {tx_id})")
+
+            c.execute("""INSERT OR IGNORE INTO credit_card_transactions
+                         (transaction_id, account_id, amount, date, merchant, description, is_pending)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                     (tx_id, account_id, amount, date_str, "", description, 1 if pending else 0))
+
+            if c.rowcount > 0:
+                new_transactions.append(tx)
+                print(f"  ✅ Inserted transaction {tx_id}")
+            else:
+                print(f"  ⚠️ Transaction {tx_id} was not inserted (already exists or error)")
+
+        conn.commit()
+        print(f"✅ Committed {len(new_transactions)} new transactions to database")
+
+        # Move money from Checking to Credit Card pocket for each new transaction
+        if new_transactions and pocket_id:
+            headers_crew = get_crew_headers()
+            if headers_crew:
+                # Get Checking subaccount ID
+                all_subs = get_subaccounts_list()
+                checking_subaccount_id = None
+                if "error" not in all_subs:
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                if checking_subaccount_id:
+                    total_new_spending = sum(abs(float(tx.get("amount", 0))) for tx in new_transactions)
+                    if total_new_spending > 0.01:
+                        print(f"💸 Moving ${total_new_spending:.2f} from Checking to Credit Card pocket for {len(new_transactions)} new transaction(s)", flush=True)
+                        move_money(checking_subaccount_id, pocket_id, str(total_new_spending), f"SimpleFin: {len(new_transactions)} new transaction(s)")
+                        cache.clear()
+
+        # Update pocket balance
+        if pocket_id:
+            # SimpleFin returns balance as a string, convert to float
+            balance_str = target_account.get("balance", "0")
+            try:
+                target_balance = abs(float(balance_str))
+            except (ValueError, TypeError):
+                print(f"Warning: Could not parse balance '{balance_str}', using 0")
+                target_balance = 0
+
+            headers_crew = get_crew_headers()
+            if headers_crew:
+                query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                response_crew = requests.post(URL, headers=headers_crew, json={
+                    "operationName": "GetSubaccount",
+                    "variables": {"id": pocket_id},
+                    "query": query_string
+                })
+
+                crew_data = response_crew.json()
+                current_balance = 0
+                try:
+                    current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                except:
+                    pass
+
+                difference = target_balance - current_balance
+                all_subs = get_subaccounts_list()
+                if "error" not in all_subs:
+                    checking_subaccount_id = None
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                    if checking_subaccount_id and abs(difference) > 0.01:
+                        if difference > 0:
+                            move_money(checking_subaccount_id, pocket_id, str(difference), f"SimpleFin credit card sync")
+                        else:
+                            move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"SimpleFin credit card sync")
+                    cache.clear()
+
+        if new_transactions:
+            print(f"✅ Found {len(new_transactions)} new SimpleFin credit card transactions")
+        else:
+            print(f"🔄 SimpleFin credit card balance checked (no new transactions)")
+
+    except Exception as e:
+        print(f"❌ Error checking SimpleFin transactions: {e}")
+        import traceback
+        traceback.print_exc()
 
 @app.route('/api/lunchflow/last-check-time')
 def api_last_check_time():
@@ -1917,6 +2235,21 @@ def background_transaction_checker():
         except Exception as e:
             print(f"Error in background transaction checker: {e}")
         time.sleep(30)  # Check every 30 seconds
+
+def start_background_thread_once():
+    """Start the background thread exactly once (thread-safe)"""
+    global _background_thread_started
+    with _background_thread_lock:
+        if not _background_thread_started:
+            transaction_thread = threading.Thread(target=background_transaction_checker, daemon=True)
+            transaction_thread.start()
+            print("🔄 Credit card transaction checker started (checks every 30 seconds)", flush=True)
+            _background_thread_started = True
+
+@app.before_request
+def ensure_background_thread():
+    """Ensure background thread is started before handling requests"""
+    start_background_thread_once()
 
 @app.route('/api/lunchflow/transactions')
 def api_get_credit_card_transactions():
@@ -1950,13 +2283,612 @@ def api_get_credit_card_transactions():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- SIMPLEFIN API ENDPOINTS ---
+import base64
+from urllib.parse import urlparse
+
+def store_simplefin_access_url(access_url):
+    """Store or update the SimpleFin access URL in the global config table"""
+    try:
+        print(f"🔍 store_simplefin_access_url called with access_url: {access_url[:50] if access_url else 'None'}...", flush=True)
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Check if we already have an access URL
+        c.execute("SELECT id FROM simplefin_config LIMIT 1")
+        existing = c.fetchone()
+
+        if existing:
+            # Update existing access URL and mark as valid
+            print("Updating existing SimpleFin access URL", flush=True)
+            c.execute("UPDATE simplefin_config SET access_url = ?, is_valid = 1 WHERE id = ?", (access_url, existing[0]))
+        else:
+            # Insert new access URL (is_valid defaults to 1)
+            print("Storing new SimpleFin access URL", flush=True)
+            c.execute("INSERT INTO simplefin_config (access_url, is_valid) VALUES (?, 1)", (access_url,))
+
+        conn.commit()
+        rows_affected = c.rowcount
+        conn.close()
+
+        print(f"✅ SimpleFin access URL stored successfully ({rows_affected} rows affected)", flush=True)
+        cache.clear()
+        return True
+    except Exception as e:
+        print(f"❌ ERROR storing SimpleFin access URL: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return False
+
+def simplefin_claim_token(token):
+    """Claim a SimpleFin token and return the access URL"""
+    try:
+        # Decode the Base64 token to get the claim URL
+        claim_url = base64.b64decode(token).decode('utf-8')
+
+        # POST to the claim endpoint
+        response = requests.post(claim_url, timeout=30)
+
+        if response.status_code == 403:
+            return {"error": "Token has been compromised or already claimed"}
+
+        if response.status_code != 200:
+            return {"error": f"SimpleFin claim error: {response.status_code} - {response.text}"}
+
+        # The response body is the access URL with embedded credentials
+        access_url = response.text.strip()
+
+        return {"success": True, "accessUrl": access_url}
+    except base64.binascii.Error:
+        return {"error": "Invalid token format. Token must be Base64-encoded."}
+    except Exception as e:
+        return {"error": f"Failed to claim token: {str(e)}"}
+
+def simplefin_get_accounts(access_url):
+    """Fetch accounts from SimpleFin using the access URL"""
+    try:
+        # Parse the access URL to extract Basic Auth credentials
+        parsed = urlparse(access_url)
+
+        # Make request to /accounts endpoint
+        response = requests.get(f"{access_url}/accounts", timeout=30)
+
+        if response.status_code != 200:
+            # If 403, mark token as invalid
+            if response.status_code == 403:
+                print("🚫 SimpleFin token has been revoked or is invalid (get_accounts)", flush=True)
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("UPDATE simplefin_config SET is_valid = 0")
+                conn.commit()
+                conn.close()
+
+            return {"error": f"SimpleFin API error: {response.status_code} - {response.text}"}
+
+        data = response.json()
+
+        # Transform SimpleFin format to match our expected format
+        accounts = []
+        for account in data.get("accounts", []):
+            # SimpleFin returns balance as a string, convert to float
+            balance_str = account.get("balance", "0")
+            try:
+                balance = float(balance_str)
+            except (ValueError, TypeError):
+                balance = 0
+
+            accounts.append({
+                "id": account.get("id"),
+                "name": account.get("name", "Unknown Account"),
+                "balance": balance,  # SimpleFin balance is in dollars
+                "currency": account.get("currency", "USD"),
+                "org": account.get("org", {}).get("name", "Unknown")
+            })
+
+        return {"accounts": accounts}
+    except Exception as e:
+        return {"error": f"Failed to fetch accounts: {str(e)}"}
+
+@app.route('/api/simplefin/get-access-url')
+def api_simplefin_get_access_url():
+    """Get the stored SimpleFin access URL if it exists"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get SimpleFin access URL from global config
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        if row and row[0]:
+            print(f"✅ SimpleFin access URL found (url length: {len(row[0])})", flush=True)
+            return jsonify({"success": True, "accessUrl": row[0]})
+        else:
+            print(f"⚠️ No SimpleFin access URL found in database", flush=True)
+            return jsonify({"success": False, "accessUrl": None})
+    except Exception as e:
+        print(f"❌ ERROR fetching SimpleFin access URL: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/claim-token', methods=['POST'])
+def api_simplefin_claim_token():
+    """Claim a SimpleFin token and store the access URL immediately"""
+    data = request.json
+    token = data.get('token')
+
+    print(f"🔍 api_simplefin_claim_token called with token: {token[:20] if token else 'None'}...", flush=True)
+
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+
+    # Claim the token
+    result = simplefin_claim_token(token)
+    print(f"🔍 simplefin_claim_token result: {result}", flush=True)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    access_url = result.get("accessUrl")
+    print(f"🔍 access_url: {access_url[:50] if access_url else 'None'}...", flush=True)
+
+    # Store the access URL immediately using the dedicated function
+    stored = store_simplefin_access_url(access_url)
+    print(f"🔍 store_simplefin_access_url returned: {stored}", flush=True)
+
+    if not stored:
+        return jsonify({"error": "Failed to store access URL in database"}), 500
+
+    return jsonify({"success": True, "accessUrl": access_url})
+
+@app.route('/api/simplefin/accounts', methods=['POST'])
+def api_simplefin_accounts():
+    """List all accounts from SimpleFin using the access URL"""
+    data = request.json
+    access_url = data.get('accessUrl')
+
+    if not access_url:
+        return jsonify({"error": "accessUrl is required"}), 400
+
+    result = simplefin_get_accounts(access_url)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+@app.route('/api/simplefin/set-credit-card', methods=['POST'])
+def api_simplefin_set_credit_card():
+    """Store the selected SimpleFin credit card account"""
+    data = request.json
+    account_id = data.get('accountId')
+    account_name = data.get('accountName', '')
+
+    if not account_id:
+        return jsonify({"error": "accountId is required"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Insert or replace the account selection (access_url is stored globally in simplefin_config)
+        c.execute("""INSERT OR REPLACE INTO credit_card_config
+                     (account_id, account_name, provider, created_at)
+                     VALUES (?, ?, 'simplefin', CURRENT_TIMESTAMP)""",
+                  (account_id, account_name))
+
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "SimpleFin credit card account saved", "needsBalanceSync": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/get-balance', methods=['POST'])
+def api_simplefin_get_balance():
+    """Get the balance for a specific SimpleFin account"""
+    data = request.json
+    account_id = data.get('accountId')
+    access_url = data.get('accessUrl')
+
+    if not account_id or not access_url:
+        return jsonify({"error": "accountId and accessUrl are required"}), 400
+
+    try:
+        # Fetch all accounts and find the matching one
+        result = simplefin_get_accounts(access_url)
+
+        if "error" in result:
+            return jsonify(result), 400
+
+        for account in result.get("accounts", []):
+            if account["id"] == account_id:
+                return jsonify({"balance": {"amount": account["balance"]}})
+
+        return jsonify({"error": "Account not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/create-pocket-with-balance', methods=['POST'])
+def api_simplefin_create_pocket_with_balance():
+    """Create the credit card pocket for SimpleFin and optionally sync balance"""
+    data = request.json
+    account_id = data.get('accountId')
+    sync_balance = data.get('syncBalance', False)
+
+    if not account_id:
+        return jsonify({"error": "accountId is required"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get account info
+        c.execute("SELECT account_name FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "SimpleFin account not found. Please select an account first."}), 400
+
+        account_name = row[0]
+
+        # Get SimpleFin access URL from global config
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        url_row = c.fetchone()
+        access_url = url_row[0] if url_row else None
+
+        # Get current balance from SimpleFin if sync requested
+        initial_amount = "0"
+        if sync_balance and access_url:
+            try:
+                balance_result = simplefin_get_accounts(access_url)
+                if "accounts" in balance_result:
+                    for account in balance_result["accounts"]:
+                        if account["id"] == account_id:
+                            initial_amount = str(abs(account["balance"]))
+                            break
+            except Exception as e:
+                print(f"Warning: Could not fetch balance: {e}")
+
+        # Create the pocket
+        pocket_name = f"Credit Card - {account_name}"
+        pocket_result = create_pocket(pocket_name, "0", initial_amount, f"SimpleFin credit card tracking pocket for {account_name}")
+
+        if "error" in pocket_result:
+            conn.close()
+            return jsonify({"error": f"Failed to create pocket: {pocket_result['error']}"}), 500
+
+        pocket_id = pocket_result.get("result", {}).get("id")
+        if not pocket_id:
+            conn.close()
+            return jsonify({"error": "Pocket was created but no ID was returned"}), 500
+
+        # Update the config with pocket_id
+        c.execute("UPDATE credit_card_config SET pocket_id = ? WHERE account_id = ? AND provider = 'simplefin'", (pocket_id, account_id))
+        conn.commit()
+
+        # Immediately fetch transactions for the new account and reset timer
+        if access_url:
+            print(f"🔄 Immediately fetching transactions for newly added SimpleFin account {account_id}", flush=True)
+            global _last_simplefin_sync
+
+            # Fetch transactions
+            try:
+                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url)
+                # Reset the timer so hourly sync starts fresh
+                _last_simplefin_sync = time.time()
+                print(f"✅ Initial transaction sync complete, hourly timer reset", flush=True)
+            except Exception as e:
+                print(f"⚠️ Error fetching initial transactions: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "SimpleFin credit card pocket created", "pocketId": pocket_id, "syncedBalance": sync_balance})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/sync-balance', methods=['POST'])
+def api_simplefin_sync_balance():
+    """Sync the pocket balance to match the SimpleFin credit card balance"""
+    data = request.json
+    account_id = data.get('accountId')
+
+    if not account_id:
+        return jsonify({"error": "accountId is required"}), 400
+
+    try:
+        # Get pocket_id from database
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT pocket_id FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+        row = c.fetchone()
+
+        if not row or not row[0]:
+            conn.close()
+            return jsonify({"error": "No SimpleFin pocket found for this account"}), 400
+
+        pocket_id = row[0]
+
+        # Get SimpleFin access URL from global config
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        url_row = c.fetchone()
+        conn.close()
+
+        if not url_row or not url_row[0]:
+            return jsonify({"error": "SimpleFin access URL not found"}), 400
+
+        access_url = url_row[0]
+
+        # Get balance from SimpleFin
+        balance_result = simplefin_get_accounts(access_url)
+        if "error" in balance_result:
+            return jsonify(balance_result), 400
+
+        target_balance = 0
+        for account in balance_result.get("accounts", []):
+            if account["id"] == account_id:
+                target_balance = abs(account["balance"])
+                break
+
+        # Get current pocket balance
+        headers_crew = get_crew_headers()
+        if not headers_crew:
+            return jsonify({"error": "Crew credentials not found"}), 400
+
+        query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+        response_crew = requests.post(URL, headers=headers_crew, json={
+            "operationName": "GetSubaccount",
+            "variables": {"id": pocket_id},
+            "query": query_string
+        })
+
+        crew_data = response_crew.json()
+        current_balance = 0
+        try:
+            current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+        except:
+            pass
+
+        # Calculate difference
+        difference = target_balance - current_balance
+
+        # Get Checking subaccount ID
+        all_subs = get_subaccounts_list()
+        if "error" in all_subs:
+            return jsonify({"error": "Could not get subaccounts list"}), 400
+
+        checking_subaccount_id = None
+        for sub in all_subs.get("subaccounts", []):
+            if sub["name"] == "Checking":
+                checking_subaccount_id = sub["id"]
+                break
+
+        if not checking_subaccount_id:
+            return jsonify({"error": "Could not find Checking subaccount"}), 400
+
+        # Transfer money to/from pocket
+        if abs(difference) > 0.01:  # Only transfer if difference is significant
+            if difference > 0:
+                result = move_money(checking_subaccount_id, pocket_id, str(difference), f"SimpleFin sync credit card balance")
+            else:
+                result = move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"SimpleFin sync credit card balance")
+
+            if "error" in result:
+                return jsonify({"error": f"Failed to sync balance: {result['error']}"}), 500
+
+        cache.clear()
+        return jsonify({"success": True, "message": "Balance synced", "targetBalance": target_balance, "previousBalance": current_balance})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/change-account', methods=['POST'])
+def api_simplefin_change_account():
+    """Delete the SimpleFin credit card pocket and clear config"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get current config
+        c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE pocket_id IS NOT NULL AND provider = 'simplefin' LIMIT 1")
+        row = c.fetchone()
+
+        if not row:
+            # Check if there's any config at all
+            c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE provider = 'simplefin' LIMIT 1")
+            row = c.fetchone()
+            if not row:
+                conn.close()
+                return jsonify({"error": "No SimpleFin credit card account configured"}), 400
+            account_id = row[0]
+            pocket_id = row[1] if len(row) > 1 else None
+        else:
+            account_id, pocket_id = row[0], row[1]
+
+        # Get current pocket balance and return it to Checking
+        headers_crew = get_crew_headers()
+        if headers_crew and pocket_id:
+            try:
+                query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                response_crew = requests.post(URL, headers=headers_crew, json={
+                    "operationName": "GetSubaccount",
+                    "variables": {"id": pocket_id},
+                    "query": query_string
+                })
+
+                crew_data = response_crew.json()
+                current_balance = 0
+                try:
+                    current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                except:
+                    pass
+
+                # Return money to Checking if there's a balance
+                all_subs = get_subaccounts_list()
+                if "error" not in all_subs:
+                    checking_subaccount_id = None
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                    if checking_subaccount_id and current_balance > 0.01:
+                        move_money(pocket_id, checking_subaccount_id, str(current_balance), "Returning SimpleFin credit card pocket funds to Safe-to-Spend")
+
+                # Delete the pocket
+                delete_subaccount_action(pocket_id)
+            except Exception as e:
+                print(f"Warning: Error deleting pocket: {e}")
+
+        # Delete config and transactions for this specific account
+        # Note: We keep the access_url in simplefin_config as it works for all accounts
+        c.execute("DELETE FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+        c.execute("DELETE FROM credit_card_transactions WHERE account_id = ?", (account_id,))
+
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "SimpleFin account changed. Pocket deleted and funds returned to Safe-to-Spend."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/stop-tracking', methods=['POST'])
+def api_simplefin_stop_tracking():
+    """Delete the SimpleFin credit card pocket and all config"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get current config
+        c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE pocket_id IS NOT NULL AND provider = 'simplefin' LIMIT 1")
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            return jsonify({"error": "No SimpleFin credit card account configured"}), 400
+
+        account_id, pocket_id = row[0], row[1]
+
+        # Get current pocket balance and return it to Checking
+        headers_crew = get_crew_headers()
+        if headers_crew and pocket_id:
+            try:
+                query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                response_crew = requests.post(URL, headers=headers_crew, json={
+                    "operationName": "GetSubaccount",
+                    "variables": {"id": pocket_id},
+                    "query": query_string
+                })
+
+                crew_data = response_crew.json()
+                current_balance = 0
+                try:
+                    current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                except:
+                    pass
+
+                # Return money to Checking
+                all_subs = get_subaccounts_list()
+                if "error" not in all_subs:
+                    checking_subaccount_id = None
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                    if checking_subaccount_id and current_balance > 0.01:
+                        move_money(pocket_id, checking_subaccount_id, str(current_balance), "Returning SimpleFin credit card pocket funds to Safe-to-Spend")
+
+                # Delete the pocket
+                delete_subaccount_action(pocket_id)
+            except Exception as e:
+                print(f"Warning: Error deleting pocket: {e}")
+
+        # Delete all config and transactions
+        c.execute("DELETE FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+        c.execute("DELETE FROM credit_card_transactions WHERE account_id = ?", (account_id,))
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "SimpleFin tracking stopped. Pocket deleted and funds returned to Safe-to-Spend."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/disconnect', methods=['POST'])
+def api_simplefin_disconnect():
+    """Completely disconnect SimpleFin - removes access URL and all account tracking"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get all SimpleFin accounts with pockets
+        c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE provider = 'simplefin' AND pocket_id IS NOT NULL")
+        accounts = c.fetchall()
+
+        # Return funds and delete pockets for all accounts
+        headers_crew = get_crew_headers()
+        if headers_crew:
+            # Get checking account
+            all_subs = get_subaccounts_list()
+            checking_subaccount_id = None
+            if "error" not in all_subs:
+                for sub in all_subs.get("subaccounts", []):
+                    if sub["name"] == "Checking":
+                        checking_subaccount_id = sub["id"]
+                        break
+
+            # Process each account
+            for account_id, pocket_id in accounts:
+                try:
+                    # Get pocket balance
+                    query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                    response_crew = requests.post(URL, headers=headers_crew, json={
+                        "operationName": "GetSubaccount",
+                        "variables": {"id": pocket_id},
+                        "query": query_string
+                    })
+
+                    crew_data = response_crew.json()
+                    current_balance = 0
+                    try:
+                        current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                    except:
+                        pass
+
+                    # Return money to Checking
+                    if checking_subaccount_id and current_balance > 0.01:
+                        move_money(pocket_id, checking_subaccount_id, str(current_balance), f"Disconnecting SimpleFin - returning funds")
+
+                    # Delete the pocket
+                    delete_subaccount_action(pocket_id)
+                except Exception as e:
+                    print(f"Warning: Error deleting pocket for account {account_id}: {e}")
+
+        # Delete all SimpleFin configs and transactions
+        c.execute("DELETE FROM credit_card_config WHERE provider = 'simplefin'")
+        c.execute("DELETE FROM credit_card_transactions WHERE account_id IN (SELECT account_id FROM credit_card_config WHERE provider = 'simplefin')")
+
+        # Delete the SimpleFin access URL (complete disconnect)
+        c.execute("DELETE FROM simplefin_config")
+
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "SimpleFin completely disconnected. All pockets deleted and funds returned."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     init_db()
-    
-    # Start background thread for transaction checking
-    transaction_thread = threading.Thread(target=background_transaction_checker, daemon=True)
-    transaction_thread.start()
-    print("🔄 Credit card transaction checker started (checks every 30 seconds)")
-    
-    print("Server running on http://127.0.0.1:8080")
-    app.run(host='0.0.0.0', debug=True, port=8080)
+    print("Server running on http://127.0.0.1:8081")
+    # Background thread will start automatically on first request
+    app.run(host='0.0.0.0', debug=True, port=8081)
