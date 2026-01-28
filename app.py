@@ -651,7 +651,7 @@ def move_money(from_id, to_id, amount, note=""):
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
         query_string = """ mutation InitiateTransferScottie($input: InitiateTransferInput!) { initiateTransfer(input: $input) { result { id __typename } __typename } } """
-        amount_cents = int(float(amount) * 100)
+        amount_cents = int(round(float(amount) * 100))
         variables = {"input": {"amount": amount_cents, "accountFromId": from_id, "accountToId": to_id, "note": note or "Transfer"}}
         response = requests.post(URL, headers=headers, json={"operationName": "InitiateTransferScottie", "variables": variables, "query": query_string})
         data = response.json()
@@ -2204,8 +2204,9 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         elif new_transactions and is_initial_sync:
             print(f"⏭️ Skipping automatic money movement for initial sync ({len(new_transactions)} historical transactions stored)", flush=True)
 
-        # Update pocket balance
-        if pocket_id:
+        # Update pocket balance to match SimpleFin balance
+        # Skip this on initial sync - balance update should only happen on subsequent syncs
+        if pocket_id and not is_initial_sync:
             # SimpleFin returns balance as a string, convert to float
             balance_str = target_account.get("balance", "0")
             try:
@@ -2733,7 +2734,7 @@ def api_simplefin_sync_balance():
             return jsonify({"error": "Could not find Checking subaccount"}), 400
 
         # Transfer money to/from pocket
-        if abs(difference) > 0.01:  # Only transfer if difference is significant
+        if abs(difference) > 0:  # Only transfer if difference is significant
             if difference > 0:
                 result = move_money(checking_subaccount_id, pocket_id, str(difference), f"SimpleFin sync credit card balance")
             else:
