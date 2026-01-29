@@ -1,0 +1,29 @@
+<div class="info-header">
+    <div class="balance-container">
+        <h1><span id="sts-balance">$ --.--</span><span class="sts-label">Safe-to-Spend®</span></h1>
+        <div class="math-line"><span id="math-total">$0.00</span> <span class="math-gray">available balance</span> - <span id="math-sched">$0.00</span> <span class="math-gray">in Bills</span> - <span id="math-goals">$0.00</span> <span class="math-gray">in Pockets</span></div>
+    </div>
+    <div class="header-links">
+        <button class="btn btn-move" id="btn-move-money" onclick="openMoveModal()">Move Money <span style="font-size:16px; line-height:0;">⇅</span></button>
+        <div class="header-link-group"><span class="header-link-label">CDs</span><a href="#" class="header-link-action">Open a CD today!</a></div>
+    </div>
+</div>
+
+<div class="controls-bar" id="controls-bar">
+    <div class="search-wrapper" id="search-container"><input type="text" class="search-input" id="search-input-box" placeholder="Search activity..."><button class="btn btn-outline" onclick="triggerSearch()">Search</button></div>
+</div>
+
+<div class="filters" id="filter-bar">
+    <span style="color: #999; font-size: 12px;">Current Filters:</span>
+    <div id="active-filters" style="display:flex; gap:10px;"><div class="pill" onclick="removeFilter('date')">Last 6 months <span class="pill-remove">×</span></div></div>
+    <span class="link-blue" onclick="toggleFilterMenu()">More Filters ⌵</span>
+    <div id="filter-menu" class="filter-popup">
+        <div class="popup-header">
+            <span class="popup-title">Filter Transactions</span>
+            <span class="close-popup" onclick="toggleFilterMenu()">×</span>
+        </div>
+        <div class="filter-group"><span class="filter-label">Date Range</span><div class="filter-row"><input type="date" id="filter-min-date" class="filter-input"><input type="date" id="filter-max-date" class="filter-input"></div></div>
+        <div class="filter-group"><span class="filter-label">Amount Range ($)</span><div class="filter-row"><input type="number" id="filter-min-amt" class="filter-input" placeholder="Min"><input type="number" id="filter-max-amt" class="filter-input" placeholder="Max"></div></div>
+        <button class="btn-apply" onclick="applyFilters()">Apply Filters</button>
+    </div>
+</div>

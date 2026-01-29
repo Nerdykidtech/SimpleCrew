@@ -1,0 +1,283 @@
+<div id="view-credit" class="view-section">
+    <div class="section-header-row"><span class="tab-title">Credit Cards</span></div>
+    <div class="data-container" style="padding: 40px 20px;">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <!-- Setup Screen (shown when no API key or not configured) -->
+            <div id="credit-setup-screen">
+                <div style="text-align: center; margin-bottom: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">💳</div>
+                    <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Set Up Credit Card Tracking</h1>
+                    <p style="font-size: 18px; color: var(--text-light); line-height: 1.6;">
+                        Connect your credit card to track transactions and stay in sync with Crew.
+                    </p>
+                </div>
+
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 40px; margin-bottom: 40px; color: white;">
+                    <h2 style="font-size: 24px; font-weight: 600; margin-bottom: 20px;">How It Works</h2>
+                    <div style="line-height: 1.8; font-size: 16px;">
+                        <p style="margin-bottom: 16px;">
+                            When you connect your credit card, Crew automatically creates a <strong>"Credit Card" Pocket</strong> to keep your spending in sync.
+                        </p>
+                        <p style="margin-bottom: 16px;">
+                            Money automatically moves from your <strong>Safe-to-Spend</strong> to your Credit Card Pocket whenever you make a purchase, ensuring you always have enough set aside to pay off your credit card balance.
+                        </p>
+                        <p>
+                            This way, you can enjoy the benefits of credit cards—building credit history, earning points and cash back—without the worry of overspending.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Provider Selection -->
+                <div id="provider-selection" style="display: none;">
+                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark); text-align: center;">Choose Your Provider</h3>
+                    <p style="color: var(--text-light); margin-bottom: 30px; text-align: center;">Select how you'd like to connect your credit card account.</p>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                        <div onclick="selectProvider('lunchflow')" style="background: white; border: 2px solid #e0e0e0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.2s; text-align: center;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🍱</div>
+                            <h4 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px;">LunchFlow</h4>
+                            <p style="font-size: 14px; color: var(--text-light); line-height: 1.5; margin-bottom: 12px;">
+                                API-based connection with daily syncing
+                            </p>
+                            <span style="display: inline-block; background: #e3f2fd; color: #1976d2; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">Recommended</span>
+                        </div>
+
+                        <div onclick="selectProvider('simplefin')" style="background: white; border: 2px solid #e0e0e0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.2s; text-align: center;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+                            <h4 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px;">SimpleFin</h4>
+                            <p style="font-size: 14px; color: var(--text-light); line-height: 1.5; margin-bottom: 12px;">
+                                Direct protocol connection via token
+                            </p>
+                            <span style="display: inline-block; background: #f3e5f5; color: #7b1fa2; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">Open Protocol</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LunchFlow Setup -->
+                <div id="lunchflow-setup" style="display: none;">
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="showProviderSelection()" style="background: none; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; padding: 8px 0;">
+                            ← Back to provider selection
+                        </button>
+                    </div>
+
+                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">LunchFlow Setup</h3>
+
+                    <!-- API Key Setup Instructions -->
+                    <div id="api-key-setup" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
+                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Configure LunchFlow API Key</h3>
+                    <ol style="line-height: 2; color: var(--text-light); padding-left: 20px;">
+                        <li>Sign up for a <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow account</a></li>
+                        <li>Create an API destination in your LunchFlow dashboard</li>
+                        <li>Copy your API key from the destination settings</li>
+                        <li>Add it to your <code style="background: #e9ecef; padding: 2px 6px; border-radius: 4px; font-family: monospace;">docker-compose.yml</code> file:</li>
+                    </ol>
+                    <div style="background: #2d2d2d; color: #f8f8f2; padding: 16px; border-radius: 8px; margin: 16px 0; font-family: monospace; font-size: 13px; overflow-x: auto;">
+                        <div>environment:</div>
+                        <div>&nbsp;&nbsp;- BEARER_TOKEN=...</div>
+                        <div>&nbsp;&nbsp;- LUNCHFLOW_API_KEY=<span style="color: #ffd700;">YOUR_API_KEY_HERE</span></div>
+                    </div>
+                    <p style="color: var(--text-light); margin-top: 16px; font-size: 14px;">
+                        Once you've added your API key, restart the Docker container and refresh this page.
+                    </p>
+                </div>
+
+                    <!-- Account Selection (shown when API key is configured) -->
+                    <div id="account-selection" style="display: none;">
+                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 2: Select Your Credit Card Account</h3>
+                        <p style="color: var(--text-light); margin-bottom: 20px;">
+                            Select which account from your LunchFlow connections should be tracked as your credit card account:
+                        </p>
+                        <div id="accounts-list" style="margin-bottom: 20px;">
+                            <div style="text-align: center; padding: 40px; color: #999;">
+                                <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+                                Loading accounts...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SimpleFin Setup -->
+                <div id="simplefin-setup" style="display: none;">
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="showProviderSelection()" style="background: none; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; padding: 8px 0;">
+                            ← Back to provider selection
+                        </button>
+                    </div>
+
+                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">SimpleFin Setup</h3>
+
+                    <!-- Invalid Token Warning -->
+                    <div id="simplefin-invalid-warning" style="display: none; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                            <div style="font-size: 24px;">⚠️</div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; margin-bottom: 8px; color: #e65100;">SimpleFin Token Invalid or Revoked</div>
+                                <p style="color: #e65100; line-height: 1.6; margin-bottom: 12px; font-size: 14px;">
+                                    Your SimpleFin access token has been revoked or is no longer valid. This can happen if you deleted the connection from your bank's side or if the token expired.
+                                </p>
+                                <button onclick="disconnectSimpleFin()" style="background: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                    Disconnect SimpleFin
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Token Input -->
+                    <div id="simplefin-token-input" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
+                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Enter Your SimpleFin Setup Token</h3>
+                        <ol style="line-height: 2; color: var(--text-light); padding-left: 20px; margin-bottom: 20px;">
+                            <li>Get your SimpleFin setup token from your bank or financial institution</li>
+                            <li>The token is a Base64-encoded string (one-time use only)</li>
+                            <li>Paste the token below and click "Connect"</li>
+                        </ol>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">SimpleFin Setup Token</label>
+                            <input type="text" id="simplefin-token-field" placeholder="Paste your Base64-encoded setup token here" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-family: monospace; font-size: 13px;">
+                        </div>
+                        <button onclick="claimSimpleFinToken()" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                            Claim Setup Token
+                        </button>
+                        <p style="color: var(--text-light); margin-top: 16px; font-size: 14px;">
+                            Note: The setup token is one-time use. Once claimed, it cannot be used again. Your access credentials will be securely stored.
+                        </p>
+                    </div>
+
+                    <!-- Account Selection (shown after token claimed) -->
+                    <div id="simplefin-account-selection" style="display: none;">
+                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 2: Select Your Credit Card Account</h3>
+                        <p style="color: var(--text-light); margin-bottom: 20px;">
+                            Select which account from your SimpleFin connection should be tracked as your credit card account:
+                        </p>
+                        <div id="simplefin-accounts-list" style="margin-bottom: 20px;">
+                            <div style="text-align: center; padding: 40px; color: #999;">
+                                <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+                                Loading accounts...
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                            <div style="font-size: 24px;">ℹ️</div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; margin-bottom: 8px; color: #1565c0;">About SimpleFin</div>
+                                <p style="color: #1565c0; line-height: 1.6; margin: 0; font-size: 14px;">
+                                    SimpleFin is a read-only financial data sharing protocol. Your token contains credentials that allow secure access to your account data without sharing passwords. Learn more at <a href="https://www.simplefin.org/protocol.html" target="_blank" style="color: #1565c0; text-decoration: underline;">simplefin.org</a>.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Balance Sync Confirmation Modal (shown after account selection) -->
+                <div id="balance-sync-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; flex-direction: column;">
+                    <div style="background: white; border-radius: 16px; padding: 40px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); margin: auto;">
+                        <h3 style="font-size: 24px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Sync Balance?</h3>
+                        <p style="color: var(--text-light); margin-bottom: 24px; line-height: 1.6;">
+                            Would you like to sync the pocket balance to match your credit card's current balance?
+                        </p>
+                        <div id="balance-display" style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 24px; text-align: center;">
+                            <div style="font-size: 14px; color: var(--text-light); margin-bottom: 8px;">Current Credit Card Balance</div>
+                            <div id="balance-amount" style="font-size: 32px; font-weight: 700; color: var(--text-dark);">Loading...</div>
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="handleBalanceSync(false)" style="flex: 1; padding: 12px; border: 2px solid #e0e0e0; background: white; border-radius: 8px; font-weight: 600; cursor: pointer; color: var(--text-dark);">Skip</button>
+                            <button onclick="handleBalanceSync(true)" style="flex: 1; padding: 12px; border: none; background: var(--simple-blue); color: white; border-radius: 8px; font-weight: 600; cursor: pointer;">Sync Balance</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-top: 40px;">
+                    <div style="background: #f8f9fa; border-radius: 12px; padding: 24px;">
+                        <div style="font-size: 32px; margin-bottom: 12px;">🔗</div>
+                        <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Connect Your Card</h3>
+                        <p style="font-size: 14px; color: var(--text-light); line-height: 1.5;">
+                            Connect your credit card through LunchFlow. Crew will securely sync your account information.
+                        </p>
+                    </div>
+
+                    <div style="background: #f8f9fa; border-radius: 12px; padding: 24px;">
+                        <div style="font-size: 32px; margin-bottom: 12px;">💰</div>
+                        <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Auto-Sync Pocket</h3>
+                        <p style="font-size: 14px; color: var(--text-light); line-height: 1.5;">
+                            A "Credit Card" Pocket is automatically created to reserve funds from your Safe-to-Spend for credit card payments.
+                        </p>
+                    </div>
+
+                    <div style="background: #f8f9fa; border-radius: 12px; padding: 24px;">
+                        <div style="font-size: 32px; margin-bottom: 12px;">✅</div>
+                        <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Stay in Sync</h3>
+                        <p style="font-size: 14px; color: var(--text-light); line-height: 1.5;">
+                            Every purchase automatically moves money to your Credit Card Pocket, keeping you aligned with your actual balance.
+                        </p>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px solid #e0e0e0; padding-top: 30px; margin-top: 40px; text-align: center;">
+                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Benefits</h3>
+                    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; font-size: 14px; color: var(--text-light);">
+                        <span>✓ Build credit history</span>
+                        <span>✓ Earn points & rewards</span>
+                        <span>✓ Never overspend</span>
+                        <span>✓ Automatic balance tracking</span>
+                    </div>
+                </div>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 8px; padding: 20px; margin-top: 40px;">
+                    <div style="font-weight: 600; margin-bottom: 8px; color: #856404;">💡 Note</div>
+                    <p style="color: #856404; line-height: 1.6; margin: 0; font-size: 14px;">
+                        Once you have a valid API key configured (optional), this screen will change to show your connected accounts and allow you to select which account to track.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Management Interface (shown when fully configured) -->
+            <div id="credit-management-screen" style="display: none;">
+                <!-- Invalid Token Warning (for SimpleFin) -->
+                <div id="credit-management-invalid-warning" style="display: none; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="font-size: 24px;">⚠️</div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; margin-bottom: 8px; color: #e65100;">SimpleFin Token Invalid or Revoked</div>
+                            <p style="color: #e65100; line-height: 1.6; margin-bottom: 12px; font-size: 14px;">
+                                Your SimpleFin access token has been revoked or is no longer valid. Transactions will not sync until you reconnect.
+                            </p>
+                            <button onclick="disconnectSimpleFin()" style="background: #d32f2f; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s; margin-right: 10px;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                Disconnect SimpleFin
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Last Updated Timestamp -->
+                <div id="credit-last-updated" style="text-align: center; color: var(--text-light); font-size: 13px; margin-bottom: 20px; display: none;">
+                    <!-- Will be populated with last sync time -->
+                </div>
+
+                <!-- Multi-Account Cards Container -->
+                <div id="credit-accounts-list" style="display: grid; gap: 20px; margin-bottom: 20px;">
+                    <!-- Account cards will be dynamically inserted here -->
+                </div>
+
+                <!-- Add Another Account Button -->
+                <button onclick="addAnotherSimpleFinAccount()" style="background: white; border: 2px dashed #ccc; border-radius: 12px; padding: 20px; cursor: pointer; width: 100%; text-align: center; color: var(--simple-blue); font-weight: 600; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.background='#f8f9fa'" onmouseout="this.style.borderColor='#ccc'; this.style.background='white'">
+                    + Add Another SimpleFin Card
+                </button>
+
+                <!-- Sync Schedule Info -->
+                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="font-size: 24px;">ℹ️</div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; margin-bottom: 8px; color: #1565c0;">Sync Schedule</div>
+                            <p style="color: #1565c0; line-height: 1.6; margin: 0; font-size: 14px;">
+                                SimpleFin accounts sync automatically every hour in the background. Each account syncs independently, so you can track multiple cards without delays.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

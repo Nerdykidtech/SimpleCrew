@@ -1,0 +1,66 @@
+<div id="bill-modal" class="modal-overlay" onclick="closeBillModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span style="font-weight:600; color:#999; font-size:12px; letter-spacing:1px; text-transform:uppercase;">Add Expense</span>
+            <span class="close-btn" onclick="closeBillModal(event)">×</span>
+        </div>
+        <div class="modal-body">
+            <div id="bill-message"></div>
+            <div class="form-group">
+                <label class="form-label">Name</label>
+                <input type="text" id="bill-name" class="form-input" placeholder="e.g. Netflix">
+            </div>
+
+            <div class="form-row-2" style="position:relative; z-index:4;">
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Amount</label>
+                    <input type="number" id="bill-amount" class="form-input" placeholder="0.00" step="0.01">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Frequency</label>
+                    <select id="bill-freq" class="form-select">
+                        <option value="MONTHLY">Once A Month</option>
+                        <option value="WEEKLY">Every Week</option>
+                        <option value="BIWEEKLY">Every two weeks</option>
+                        <option value="QUARTERLY">Every three Months</option>
+                        <option value="SEMI_ANNUALLY">Twice a year</option>
+                        <option value="ANNUALLY">Once a year</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="position:relative; z-index:3;">
+                <label class="form-label">Day of Month</label>
+                <select id="bill-day" class="form-select">
+                    </select>
+            </div>
+
+            <div class="form-group" style="position:relative; z-index:50;">
+                <label class="form-label">Identification (Search Transactions)</label>
+                <input type="text" id="bill-id-search" class="form-input" placeholder="Type to search..." autocomplete="off">
+                <div id="suggestion-box" class="suggestion-box"></div>
+            </div>
+
+            <div class="form-row-2" style="position:relative; z-index:1;">
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Min Amount</label>
+                    <input type="number" id="bill-min" class="form-input" placeholder="0.00">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Max Amount</label>
+                    <input type="number" id="bill-max" class="form-input" placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-wrapper">
+                    <input type="checkbox" id="bill-variable" class="checkbox-input">
+                    <span class="checkbox-label">Adjust for Variable Bills</span>
+                </label>
+                <div class="form-subtext">If a bill is different than expected, update its reservation amount for the next period</div>
+            </div>
+
+            <button class="btn-goal-add" onclick="saveBill()">Create Bill</button>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Simple. Activity</title>
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#FDFDFD">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Simple">
+    <link rel="apple-touch-icon" href="https://d31s10tn3clc14.cloudfront.net/imgs/deposits/Review+Logos/simple-logo.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/navigation.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/modals.css">
+    <link rel="stylesheet" href="/static/css/mobile.css">
+</head>
+<body>
+
+{% block content %}{% endblock %}
+
+<!-- Core utilities first -->
+<script src="/static/js/utils/formatters.js"></script>
+<script src="/static/js/utils/helpers.js"></script>
+<script src="/static/js/state.js"></script>
+
+<!-- UI layer (dialogs must load before API layer for appConfirm) -->
+<script src="/static/js/ui/dialogs.js"></script>
+
+<!-- API layer -->
+<script src="/static/js/api/cards.js"></script>
+<script src="/static/js/api/goals.js"></script>
+<script src="/static/js/api/expenses.js"></script>
+<script src="/static/js/api/transactions.js"></script>
+<script src="/static/js/api/family.js"></script>
+<script src="/static/js/api/credit.js"></script>
+
+<!-- UI layer (continued) -->
+<script src="/static/js/ui/navigation.js"></script>
+<script src="/static/js/ui/modals.js"></script>
+<script src="/static/js/ui/filters.js"></script>
+<script src="/static/js/ui/rendering.js"></script>
+
+<!-- Features -->
+<script src="/static/js/features/dragdrop.js"></script>
+<script src="/static/js/features/groups.js"></script>
+<script src="/static/js/features/autorefresh.js"></script>
+
+<!-- Main app (loaded last) -->
+<script src="/static/js/app.js"></script>
+</body>
+</html>

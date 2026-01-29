@@ -1,0 +1,453 @@
+/**
+ * @file components.css
+ * @description Buttons, cards, groups, pills, progress bars, tables, transactions
+ */
+
+        /* --- CONTROLS --- */
+        .controls-bar {
+            padding: 25px 40px 0 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            margin-bottom: -10px;
+        }
+
+        #search-container { display: flex; gap: 10px; width: 60%; transition: opacity 0.2s; }
+        .search-input { padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 4px; width: 100%; font-size: 14px; color: #333; }
+        .btn { padding: 8px 16px; border-radius: 4px; font-weight: 500; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .btn-outline { background: #FFF; border: 1px solid var(--border-color); color: var(--text-dark); white-space: nowrap; }
+        .btn-outline:hover { border-color: #BBB; }
+
+        .btn-move { background: #FFF; border: 1px solid var(--border-color); color: var(--text-dark); display: flex; align-items: center; gap: 8px; padding: 10px 16px; white-space: nowrap; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05);}
+        .btn-move:hover { border-color: #BBB; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        /* FILTERS */
+        .filters {
+            padding: 0 40px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-shrink: 0;
+            position: relative;
+            margin-top: 20px;
+            z-index: 10;
+        }
+        .pill { background: #E0E0E0; color: var(--text-dark); padding: 5px 12px; border-radius: 15px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;}
+        .pill:hover { background: #D0D0D0; }
+        .pill-remove { font-size: 14px; color: #666; font-weight: normal; }
+        .link-blue { color: var(--link-blue); font-size: 13px; cursor: pointer; user-select: none; white-space: nowrap; }
+
+        /* FILTER POPUP */
+        .filter-popup {
+            position: absolute; top: 30px; left: 150px; background: #FFF; border: 1px solid var(--border-color);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1); border-radius: 6px; padding: 20px; width: 300px; z-index: 100; display: none;
+        }
+        .filter-group { margin-bottom: 15px; }
+        .filter-label { font-size: 12px; font-weight: 600; color: #777; margin-bottom: 5px; display: block; }
+        .filter-row { display: flex; gap: 10px; }
+        .filter-input { width: 100%; padding: 8px; border: 1px solid #DDD; border-radius: 4px; font-size: 13px; }
+        .btn-apply { background: var(--simple-blue); color: #FFF; width: 100%; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+
+        /* NEW: Popup Header for Exit Button */
+        .popup-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom:10px; border-bottom:1px solid #F0F0F0; }
+        .popup-title { font-weight: 700; font-size: 14px; color: #333; }
+        .close-popup { font-size: 24px; color: #999; cursor: pointer; line-height: 1; }
+        .close-popup:hover { color: #333; }
+
+        /* --- MODERN GROUP STYLES (Cards) --- */
+        .group-container {
+            margin-bottom: 15px;
+            transition: all 0.2s;
+            border: 2px solid transparent; /* Prepare for drag over */
+            border-radius: 10px;
+        }
+
+        /* DRAG AND DROP STYLES */
+        .group-container.drag-active {
+            border-color: var(--simple-blue);
+            background-color: rgba(0, 147, 233, 0.05);
+            border-style: dashed;
+        }
+
+        .group-header {
+            background-color: #FFF;
+            border: 1px solid #EAEAEA;
+            border-radius: 8px; /* Rounded corners for card look */
+            padding: 20px 25px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            user-select: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+            pointer-events: none; /* Let clicks pass through if needed, but we handle click on header */
+        }
+        /* Enable pointer events on header specifically for click to collapse */
+        .group-header { pointer-events: auto; }
+
+        .group-header:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            transform: translateY(-1px);
+            border-color: #DDD;
+        }
+
+        .group-icon-square {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            background: var(--simple-blue);
+            color: #FFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            margin-right: 18px;
+            flex-shrink: 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .group-info { flex: 1; pointer-events: none; }
+        .group-title-text {
+            font-size: 16px;
+            font-weight: 700;
+            color: #333;
+            line-height: 1.2;
+        }
+        .group-subtitle {
+            font-size: 13px;
+            color: #999;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+
+        .group-stats {
+            text-align: right;
+            margin-right: 20px;
+            pointer-events: none;
+        }
+        .group-balance {
+            font-size: 15px;
+            font-weight: 700;
+            color: #333;
+        }
+        .group-target {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .group-chevron {
+            color: #CCC;
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+        .group-header.collapsed .group-chevron { transform: rotate(-90deg); }
+        .group-header.collapsed {
+            border-radius: 8px; /* Keep rounded when collapsed */
+        }
+
+        .group-content { display: block; margin-top: 5px; min-height: 10px; }
+        .group-content.collapsed { display: none; }
+
+        /* Style items inside groups */
+        .group-content .exp-item {
+            background: #FAFAFA; /* Slightly distinct background */
+            border-left: 4px solid #E0E0E0;
+            margin-left: 15px; /* Indent */
+            margin-right: 15px;
+            border-radius: 4px;
+            margin-bottom: 1px;
+            border-bottom: 1px solid #EEE;
+        }
+        .group-content .exp-item:first-child { border-top-left-radius: 4px; border-top-right-radius: 4px; }
+        .group-content .exp-item:last-child { border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; border-bottom: none;}
+
+        /* --- NEW: MANAGE BUTTON STYLE --- */
+        .btn-manage-groups {
+            background: transparent;
+            color: #767676;
+            border: 1px solid transparent;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        .btn-manage-groups:hover {
+            background: #F5F5F5;
+            color: var(--simple-blue);
+        }
+        .icon-gear { font-size: 14px; }
+
+        /* --- GROUP MANAGEMENT MODAL STYLES --- */
+        .mgmt-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #F4F4F4;
+        }
+        .mgmt-list-item:last-child { border-bottom: none; }
+        .mgmt-name { font-weight: 600; font-size: 14px; color: #333; }
+        .mgmt-actions { display: flex; gap: 15px; }
+        .action-icon { cursor: pointer; font-size: 13px; font-weight: 600; color: #999; transition: color 0.2s; }
+        .action-icon:hover { color: var(--simple-blue); }
+        .action-icon.delete:hover { color: var(--alert-red); }
+
+        .pocket-select-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #EEE;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .pocket-select-row {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid #FAFAFA;
+            cursor: pointer;
+        }
+        .pocket-select-row:hover { background: #F9F9F9; }
+        .pocket-select-row:last-child { border-bottom: none; }
+        .ps-checkbox { margin-right: 12px; width: 16px; height: 16px; accent-color: var(--simple-blue); }
+        .ps-name { font-weight: 600; font-size: 13px; color: #333; flex: 1; }
+        .ps-current-group { font-size: 11px; color: #999; background: #F0F0F0; padding: 2px 6px; border-radius: 4px; }
+
+        /* --- MODERN CARD ROW STYLES --- */
+        .card-row {
+            display: flex;
+            align-items: center;
+            padding: 25px 30px;
+            border-bottom: 1px solid #EAEAEA;
+            background: #FFF;
+            transition: background 0.1s;
+        }
+        .card-row:hover { background: #FAFAFA; }
+
+        /* Left: Icon & Name */
+        .card-icon {
+            width: 48px;
+            height: 30px;
+            border-radius: 4px;
+            margin-right: 20px;
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card-icon::after {
+            content:''; position:absolute; top:4px; left:4px; width:8px; height:5px;
+            background:rgba(255,255,255,0.4); border-radius:1px;
+        }
+        .card-info { flex: 1; }
+        .card-name { font-weight: 700; font-size: 16px; color: #2C2C2C; margin-bottom: 2px; }
+        .card-meta { font-size: 13px; color: #999; font-weight: 500; }
+
+        /* Right: Controls Area */
+        .card-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .spend-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modern-select {
+            appearance: none;
+            -webkit-appearance: none;
+            background-color: #FFF;
+            border: 1px solid #DDD;
+            border-radius: 4px;
+            padding: 8px 32px 8px 12px;
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23999%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px top 50%;
+            background-size: 10px auto;
+            min-width: 140px;
+        }
+        .modern-select:hover { border-color: #BBB; }
+        .modern-select:focus { border-color: var(--simple-blue); outline: none; }
+
+        .type-badge {
+            background: #E3F2FD;
+            color: #1565C0;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 6px 10px;
+            border-radius: 12px;
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 768px) {
+            .card-row { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .card-controls { width: 100%; justify-content: space-between; }
+            .modern-select { flex: 1; }
+        }
+
+
+        /* TRANSACTIONS */
+        .tx-group-date { font-size: 12px; color: #999; font-weight: 700; background: #FAFAFA; padding: 8px 15px; border-bottom: 1px solid #EEE; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; }
+        .tx-row { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #FFF; border-bottom: 1px solid #F4F4F4; cursor: pointer; transition: background 0.1s; }
+        .tx-row:hover { background: #F7FBFF; }
+        .tx-row.credit-card-tx {
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.05) 0%, #FFF 20%);
+            border-left: 3px solid #667eea;
+            padding-left: 17px;
+        }
+        .tx-row.credit-card-tx:hover {
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.1) 0%, #F7FBFF 20%);
+        }
+        .tx-left { display: flex; flex-direction: column; gap: 4px; }
+        .tx-title { font-weight: 600; font-size: 14px; color: var(--text-dark); }
+        .tx-desc { font-size: 12px; color: #999; }
+        .tx-amount { font-weight: 600; font-size: 14px; }
+        .tx-neg { color: var(--text-dark); }
+        .tx-pos { color: #63BB67; }
+
+        /* EXPENSES & GOALS */
+        .exp-summary-bar { font-size: 13px; color: #767676; font-weight: 500; margin-bottom: 15px; text-align: right; }
+
+        /* New Expense Hero Card for Mobile */
+        .exp-hero-card {
+            background: #FFF;
+            padding: 20px 25px;
+            border-bottom: 1px solid #EAEAEA;
+            display: none; /* Hidden on desktop by default */
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: stretch;
+        }
+        .exp-hero-col { display: flex; flex-direction: column; justify-content: center; }
+        .exp-hero-col.right { min-width: 90px; }
+
+        .exp-hero-divider {
+            width: 1px;
+            background-color: #E0E0E0;
+            margin: 0 20px;
+        }
+
+        .hero-lbl { font-size: 13px; color: #999; font-weight: 400; margin-bottom: 5px; }
+        .hero-val { font-size: 16px; font-weight: 600; color: #2C2C2C; }
+        .hero-status { font-size: 15px; font-weight: 600; color: #2E7D32; display: flex; align-items: center; gap: 4px; }
+
+        .exp-item { padding: 20px 25px; border-bottom: 1px solid #EAEAEA; cursor: pointer; transition: background-color 0.15s; }
+        .exp-item:last-child { border-bottom: none; }
+        .exp-item:hover { background-color: #F9F9F9; }
+
+        /* Credit card pocket styling */
+        .exp-item.credit-card-pocket {
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.03) 0%, transparent 100%);
+            border-left: 3px solid #667eea;
+            padding-left: 22px;
+        }
+        .exp-item.credit-card-pocket:hover {
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.06) 0%, rgba(249, 249, 249, 0.5) 100%);
+        }
+        .group-content .exp-item.credit-card-pocket {
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.05) 0%, rgba(250, 250, 250, 0.8) 100%);
+        }
+
+        /* Dragging styles for items */
+        .exp-item[draggable="true"] { cursor: grab; }
+        .exp-item[draggable="true"]:active { cursor: grabbing; }
+        .exp-item.is-dragging { opacity: 0.4; background-color: #F0F9FF; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+
+        .exp-header-line { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; pointer-events: none; }
+        .exp-name { font-weight: 700; font-size: 15px; color: #2C2C2C; }
+        .exp-funding-status { font-size: 12px; font-weight: 600; color: #767676; background: #F0F0F0; padding: 3px 8px; border-radius: 4px; }
+        .exp-funding-status.ready { background: #E6F8E8; color: #2E7D32; }
+        .exp-progress-container { height: 10px; background: var(--exp-track); border-radius: 5px; width: 100%; overflow: hidden; margin-bottom: 10px; pointer-events: none; }
+        .exp-progress-bar { height: 100%; background: var(--exp-fill); width: 0%; border-radius: 5px; transition: width 0.5s ease-out; }
+        .exp-details { display: flex; justify-content: space-between; font-size: 13px; color: #666; font-weight: 500; pointer-events: none; }
+
+        /* ADD BILL / POCKET ROW STYLES */
+        .add-bill-row {
+            border: 2px dashed #E0E0E0;
+            border-radius: 8px;
+            margin: 10px 25px 20px 25px;
+            padding: 18px;
+            text-align: center;
+            color: #999;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .add-bill-row:hover {
+            border-color: var(--simple-blue);
+            color: var(--simple-blue);
+            background: #F7FBFF;
+        }
+
+
+        /* FAMILY TAB */
+        .family-section-title { font-size: 14px; font-weight: 700; color: #999; margin: 25px 0 15px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+        .family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+        .family-card { background: #FFF; border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; position: relative; overflow: hidden; }
+        .family-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .color-strip { position: absolute; top: 0; left: 0; right: 0; height: 6px; }
+        .profile-img { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; margin-bottom: 15px; border: 2px solid #FFF; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .family-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 5px; }
+        .family-role { font-size: 12px; font-weight: 500; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+        .family-balance { font-size: 24px; font-weight: 600; color: #333; margin-top: 15px; }
+
+        /* CARDS TAB */
+        .card-row { display: flex; align-items: center; padding: 20px; border-bottom: 1px solid #EAEAEA; background: #FFF; transition: background 0.1s; }
+        .card-row:hover { background: #FAFAFA; }
+        .card-icon { width: 40px; height: 26px; border-radius: 4px; margin-right: 15px; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card-icon::after { content:''; position:absolute; top:4px; left:4px; width:6px; height:4px; background:rgba(255,255,255,0.5); border-radius:1px; }
+        .card-info { flex: 1; }
+        .card-name { font-weight: 600; font-size: 15px; color: #333; }
+        .card-meta { font-size: 13px; color: #999; margin-top: 2px; }
+        .card-type-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; border-radius: 12px; margin-right: 15px; }
+        .type-phys { background: #E3F2FD; color: #1565C0; }
+        .type-virt { background: #F3E5F5; color: #7B1FA2; }
+        .card-status { font-size: 13px; font-weight: 500; width: 100px; text-align: right; }
+        .status-active { color: #63BB67; }
+        .status-inactive { color: #AAA; }
+
+        /* SIDEBAR */
+        .sidebar-column { display: flex; flex-direction: column; overflow: hidden; }
+        .sidebar-card { background: #FFF; border: 1px solid var(--border-color); border-radius: 4px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .card-title { font-size: 13px; font-weight: 700; margin-bottom: 15px; display: flex; justify-content: space-between; color: var(--text-dark); }
+        .trend-row { display: flex; justify-content: space-between; padding: 12px 0; font-size: 13px; border-bottom: 1px solid #FAFAFA; }
+        .trend-row:last-child { border-bottom: none; }
+        .goal-bar-bg { height: 4px; background: #E6E6E6; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+        .goal-bar-fill { height: 100%; background: var(--simple-blue); width: 0%; }
+        .goal-card-clickable { cursor: pointer; transition: border-color 0.2s; }
+        .goal-card-clickable:hover { border-color: var(--simple-blue); }
+
+        /* UNGROUPED DROP ZONE */
+        .ungrouped-zone {
+            border: 2px solid transparent;
+            border-radius: 8px;
+            padding: 5px;
+            transition: all 0.2s;
+        }
+        .ungrouped-zone.drag-active {
+            border-color: #E0E0E0;
+            background-color: #FAFAFA;
+            border-style: dashed;
+        }

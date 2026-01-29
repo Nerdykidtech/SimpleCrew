@@ -1,0 +1,75 @@
+/**
+ * @file main.css
+ * @description Core styles, CSS variables, base layout, grid system
+ */
+
+:root {
+    --bg-body: #FDFDFD;
+    --border-color: #E8E8E8;
+    --text-dark: #2C2C2C;
+    --text-light: #767676;
+    --simple-blue: #0093E9;
+    --alert-red: #D93025;
+    --link-blue: #0085C3;
+    --exp-track: #F0F0F0;
+    --exp-fill: #34495E;
+    --nav-height: 60px;
+    --bottom-nav-height: 0px; /* 0 on desktop */
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-body);
+    color: var(--text-dark);
+    font-size: 14px;
+    overflow-y: hidden; /* Desktop keeps hidden, Mobile will override */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- GRID --- */
+.main-grid {
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+    gap: 40px;
+    padding: 0 40px;
+    max-width: 1600px;
+    /* On desktop, we want the grid to fill remaining height */
+    flex: 1;
+    overflow: hidden;
+    width: 100%;
+    margin-top: 30px;
+}
+
+.main-column {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Contains the internal scroll */
+    height: 100%;
+}
+
+.view-section { display: none; height: 100%; flex-direction: column; }
+.view-section.active { display: flex; }
+
+.section-header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--simple-blue); padding-bottom: 12px; margin-bottom: 0px; flex-shrink: 0; }
+.tab-title { font-weight: 700; font-size: 15px; color: var(--text-dark); }
+.view-toggles { color: var(--text-light); font-size: 13px; cursor: default; }
+.view-toggles span.active { color: var(--text-dark); font-weight: 700; }
+
+.data-container {
+    background: #FFF; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 4px 4px;
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #CCC #F0F0F0;
+}
+.data-container::-webkit-scrollbar { width: 8px; }
+.data-container::-webkit-scrollbar-track { background: #FAFAFA; border-left: 1px solid #EEE; }
+.data-container::-webkit-scrollbar-thumb { background-color: #C1C1C1; border-radius: 4px; border: 2px solid #FAFAFA; }
+
+.sidebar-column { display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-card { background: #FFF; border: 1px solid var(--border-color); border-radius: 4px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }

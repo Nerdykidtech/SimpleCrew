@@ -1,0 +1,161 @@
+/**
+ * @file navigation.css
+ * @description Navigation, header, and profile styles (desktop & mobile)
+ */
+
+/* --- NAV --- */
+.top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--nav-height);
+    padding: 0 40px;
+    background: #FFF;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    z-index: 50;
+    position: relative; /* For absolute centering */
+}
+
+.nav-left, .nav-right { display: flex; align-items: center; gap: 30px; }
+
+.logo { margin-right: 15px; display: flex; align-items: center; }
+.logo img { height: 22px; display: block; }
+
+.nav-link {
+    text-decoration: none;
+    color: var(--text-dark);
+    font-weight: 500;
+    padding: 21px 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.2s;
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.nav-link svg {
+    display: none; /* Hidden on desktop */
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.nav-link:hover { color: var(--simple-blue); }
+.nav-link.active { border-bottom: 2px solid var(--simple-blue); color: var(--text-dark); }
+
+.user-profile { display: flex; align-items: center; gap: 10px; color: var(--text-light); cursor: pointer; }
+.avatar { width: 32px; height: 32px; background: #F5A623; color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+
+/* --- HEADER --- */
+.info-header {
+    background: #FAFAFA;
+    padding: 25px 40px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    flex-shrink: 0;
+    margin-bottom: 0;
+}
+
+.balance-container h1 { margin: 0; font-size: 32px; font-weight: 600; color: var(--text-dark); display: flex; align-items: baseline; gap: 12px; }
+.sts-label { font-size: 15px; font-weight: 400; color: #999; }
+.math-line { margin-top: 6px; font-size: 13px; color: var(--text-dark); }
+.math-gray { color: #999; }
+
+.header-links { display: flex; gap: 30px; align-items: center; }
+.header-link-group { display: flex; flex-direction: column; }
+.header-link-label { font-size: 12px; color: #999; margin-bottom: 4px; }
+.header-link-action { font-size: 13px; color: var(--link-blue); font-weight: 500; text-decoration: none; }
+
+/* Mobile Navigation Styles */
+.mobile-bottom-nav {
+    display: flex; /* Show only on mobile */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    height: var(--bottom-nav-height);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid rgba(0,0,0,0.1);
+    box-shadow: 0 -1px 10px rgba(0,0,0,0.02);
+}
+
+.mobile-nav-link {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: #999;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.mobile-nav-link svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.mobile-nav-link.active {
+    color: var(--simple-blue);
+}
+
+.mobile-nav-link.active svg {
+    stroke: var(--simple-blue);
+    stroke-width: 2.5;
+}
+
+.mobile-center-header {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap; /* Prevents jumping */
+}
+
+.mobile-top-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #2C2C2C; /* Darker label */
+    font-weight: 600;
+    line-height: 1;
+    margin-bottom: 3px;
+}
+
+.mobile-top-balance {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--simple-blue); /* BLUE COLOR AS REQUESTED */
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.header-arrow { font-size: 10px; margin-left: 4px; transition: transform 0.2s; display: inline-block; }
+.mobile-center-header.active .header-arrow { transform: rotate(180deg); }

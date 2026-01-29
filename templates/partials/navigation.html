@@ -1,0 +1,63 @@
+<nav class="top-nav">
+    <div class="nav-left">
+        <div class="logo"><img src="https://d31s10tn3clc14.cloudfront.net/imgs/deposits/Review+Logos/simple-logo.png" alt="Simple"></div>
+        <a onclick="switchTab('activity')" id="nav-activity" class="nav-link active">Activity</a>
+        <a onclick="switchTab('expenses')" id="nav-expenses" class="nav-link">Expenses</a>
+        <a onclick="switchTab('goals')" id="nav-goals" class="nav-link">Pockets</a>
+        <a onclick="switchTab('family')" id="nav-family" class="nav-link">Family</a>
+        <a onclick="switchTab('cards')" id="nav-cards" class="nav-link">Cards</a>
+        <a onclick="switchTab('credit')" id="nav-credit" class="nav-link">Credit</a>
+    </div>
+
+    <div class="mobile-center-header" onclick="toggleMobileStats(event)">
+        <div class="mobile-top-label" id="mobile-header-label">Safe-to-Spend®</div>
+        <div class="mobile-top-balance" id="mobile-header-balance">$ --.-- <span class="header-arrow">▼</span></div>
+
+        <div id="mobile-sts-dropdown" class="mobile-sts-dropdown">
+            <div class="mb-dropdown-row"><span id="mb-math-total">$0.00</span> <span class="mb-math-label">Available</span></div>
+            <div class="mb-dropdown-row minus"><span id="mb-math-bills">-$0.00</span> <span class="mb-math-label">Bills</span></div>
+            <div class="mb-dropdown-row minus"><span id="mb-math-goals">-$0.00</span> <span class="mb-math-label">Pockets</span></div>
+            <div class="mb-dropdown-divider"></div>
+            <div class="mb-dropdown-row total"><span id="mb-math-sts">$0.00</span> <span class="mb-math-label">Safe-to-Spend</span></div>
+        </div>
+    </div>
+    <div class="nav-right">
+        <div class="user-profile">
+            <div class="avatar" id="user-avatar">--</div>
+            <span style="font-weight:500;" id="user-name">Loading...</span>
+            <span style="font-size: 10px;">▼</span>
+        </div>
+    </div>
+</nav>
+
+<div class="mobile-bottom-nav">
+    <div onclick="switchTab('activity')" id="mb-nav-activity" class="mobile-nav-link active">
+        <svg viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        <span>Activity</span>
+    </div>
+    <div onclick="switchTab('expenses')" id="mb-nav-expenses" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span>Expenses</span>
+    </div>
+    <div onclick="switchTab('goals')" id="mb-nav-goals" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>Pockets</span>
+    </div>
+    <div onclick="switchTab('family')" id="mb-nav-family" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 21v-2a4 4 0 0 1 4-4h5a4 4 0 0 1 4 4v2"/></svg>
+        <span>Family</span>
+    </div>
+    <div onclick="switchTab('cards')" id="mb-nav-cards" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Cards</span>
+    </div>
+    <div onclick="switchTab('credit')" id="mb-nav-credit" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/></svg>
+        <span>Credit</span>
+    </div>
+
+    <div onclick="openIntercom()" class="mobile-nav-link">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Help</span>
+    </div>
+</div>

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+    {% include 'partials/modals/app_dialog.html' %}
+
+    <div style="font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; min-height: 100vh;">
+        <h1>SimpleCrew Function Debug</h1>
+        <p>This page tests if all onclick handler functions are loaded</p>
+
+        <h2>Test Functions:</h2>
+        <button onclick="testSyncAccountBalance()" style="padding: 10px 20px; margin: 5px; cursor: pointer; background: #0e639c; color: white; border: none; border-radius: 4px;">Test syncAccountBalance()</button>
+        <button onclick="testViewAccountTransactions()" style="padding: 10px 20px; margin: 5px; cursor: pointer; background: #0e639c; color: white; border: none; border-radius: 4px;">Test viewAccountTransactions()</button>
+        <button onclick="testAppConfirm()" style="padding: 10px 20px; margin: 5px; cursor: pointer; background: #0e639c; color: white; border: none; border-radius: 4px;">Test appConfirm()</button>
+        <button onclick="runAllTests()" style="padding: 10px 20px; margin: 5px; cursor: pointer; background: #0e639c; color: white; border: none; border-radius: 4px;">Run All Tests</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function logResult(name, status, message) {
+            const div = document.createElement('div');
+            div.style = 'margin: 10px 0; padding: 10px; background: #2d2d2d; border-radius: 4px; color: ' + (status ? '#4ec9b0' : '#f48771');
+            div.innerHTML = `<strong>${name}:</strong> ${message}`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        function testSyncAccountBalance() {
+            document.getElementById('results').innerHTML = '';
+            try {
+                if (typeof syncAccountBalance === 'function') {
+                    logResult('syncAccountBalance', true, '✓ Function is defined');
+                    console.log('Testing syncAccountBalance...');
+                    syncAccountBalance('test-account-id');
+                    logResult('syncAccountBalance', true, '✓ Function called (check console for any errors)');
+                } else {
+                    logResult('syncAccountBalance', false, '✗ Function is NOT defined');
+                }
+            } catch (e) {
+                logResult('syncAccountBalance', false, '✗ Error: ' + e.message);
+            }
+        }
+
+        function testViewAccountTransactions() {
+            document.getElementById('results').innerHTML = '';
+            try {
+                if (typeof viewAccountTransactions === 'function') {
+                    logResult('viewAccountTransactions', true, '✓ Function is defined');
+                    console.log('Testing viewAccountTransactions...');
+                    viewAccountTransactions('test-account-id');
+                    logResult('viewAccountTransactions', true, '✓ Function called (check if it switched tabs)');
+                } else {
+                    logResult('viewAccountTransactions', false, '✗ Function is NOT defined');
+                }
+            } catch (e) {
+                logResult('viewAccountTransactions', false, '✗ Error: ' + e.message);
+            }
+        }
+
+        function testAppConfirm() {
+            document.getElementById('results').innerHTML = '';
+            try {
+                if (typeof appConfirm === 'function') {
+                    logResult('appConfirm', true, '✓ Function is defined');
+                    console.log('Testing appConfirm...');
+                    appConfirm('This is a test dialog', 'Test').then(result => {
+                        logResult('appConfirm', true, '✓ Dialog returned: ' + result);
+                    });
+                    logResult('appConfirm', true, '✓ Function called (dialog should appear)');
+                } else {
+                    logResult('appConfirm', false, '✗ Function is NOT defined');
+                }
+            } catch (e) {
+                logResult('appConfirm', false, '✗ Error: ' + e.message);
+            }
+        }
+
+        function runAllTests() {
+            document.getElementById('results').innerHTML = '';
+
+            const functions = [
+                'syncAccountBalance',
+                'viewAccountTransactions',
+                'appConfirm',
+                'switchTab',
+                'reloadTx',
+                'removeAccount',
+                'selectProvider',
+                'showProviderSelection',
+                'openIntercom',
+                'renderAccountCards'
+            ];
+
+            functions.forEach(funcName => {
+                if (typeof window[funcName] === 'function') {
+                    logResult(funcName, true, '✓ Defined');
+                } else {
+                    logResult(funcName, false, '✗ NOT defined');
+                }
+            });
+
+            // Check for dialog HTML
+            const dialogOverlay = document.getElementById('app-dialog-overlay');
+            if (dialogOverlay) {
+                logResult('app-dialog-overlay', true, '✓ Dialog HTML exists');
+            } else {
+                logResult('app-dialog-overlay', false, '✗ Dialog HTML is MISSING');
+            }
+        }
+    </script>
+{% endblock %}

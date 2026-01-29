@@ -1,0 +1,40 @@
+<div id="pocket-modal" class="modal-overlay" onclick="closePocketModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span style="font-weight:600; color:#999; font-size:12px; letter-spacing:1px; text-transform:uppercase;">Create Pocket</span>
+            <span class="close-btn" onclick="closePocketModal(event)">×</span>
+        </div>
+        <div class="modal-body">
+            <div id="pocket-message"></div>
+            <div class="form-group">
+                <label class="form-label">Pocket Name</label>
+                <input type="text" id="pocket-name" class="form-input" placeholder="e.g. Vacation Fund">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Initial Funding</label>
+                <input type="number" id="pocket-initial" class="form-input" placeholder="0.00">
+                <div id="pocket-funding-hint" class="form-subtext">Safe-to-Spend: $0.00</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Goal Amount ($)</label>
+                <input type="number" id="pocket-amount" class="form-input" placeholder="0.00">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Group (Optional)</label>
+                <select id="pocket-group" class="form-select">
+                    <option value="">No Group</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Description (Optional)</label>
+                <input type="text" id="pocket-desc" class="form-input" placeholder="What is this for?">
+            </div>
+
+            <button class="btn-goal-add" onclick="savePocket()">Create Pocket</button>
+        </div>
+    </div>
+</div>

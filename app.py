@@ -1178,6 +1178,9 @@ def create_bill_action(name, amount, frequency_key, day_of_month, match_string=N
 @app.route('/')
 def index(): return render_template('index.html')
 
+@app.route('/debug')
+def debug(): return render_template('debug.html')
+
 # --- PWA ROUTES ---
 @app.route('/manifest.json')
 def serve_manifest():
