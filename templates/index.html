@@ -1001,6 +1001,23 @@
                 opacity: 0.5;
                 background: #eef;
                 border: 1px dashed #ccc;
+                touch-action: none;
+            }
+
+            /* Prevent scrolling when dragging on mobile */
+            body.drag-mode-active {
+                overflow: hidden;
+                touch-action: none;
+            }
+
+            body.drag-mode-active #main-content {
+                overflow: hidden;
+                touch-action: none;
+            }
+
+            body.drag-mode-active .view-section {
+                overflow: hidden;
+                touch-action: none;
             }
             /* Ensure the drop zone has height so you can drop into an empty group */
             .group-content {
@@ -1691,6 +1708,11 @@
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+
+                            <!-- Last Updated Timestamp -->
+                            <div id="credit-last-updated" style="text-align: center; color: var(--text-light); font-size: 13px; margin-bottom: 20px; display: none;">
+                                <!-- Will be populated with last sync time -->
                             </div>
 
                             <!-- Multi-Account Cards Container -->
@@ -2566,13 +2588,46 @@
                 document.getElementById('credit-management-invalid-warning').style.display = 'none';
             }
 
-            // Fetch latest status to get accounts array
+            // Fetch latest status to get accounts array and last sync time
             fetch('/api/lunchflow/credit-card-status')
                 .then(res => res.json())
                 .then(data => {
                     const accounts = data.accounts || [];
                     renderAccountCards(accounts);
+
+                    // Update last sync timestamp
+                    updateLastSyncDisplay(data.lastSync);
                 });
+        }
+
+        function updateLastSyncDisplay(lastSync) {
+            const container = document.getElementById('credit-last-updated');
+            if (!container) return;
+
+            if (lastSync) {
+                const syncDate = new Date(lastSync);
+                const now = new Date();
+                const diffMs = now - syncDate;
+                const diffMins = Math.floor(diffMs / 60000);
+
+                let timeAgo;
+                if (diffMins < 1) {
+                    timeAgo = 'just now';
+                } else if (diffMins < 60) {
+                    timeAgo = `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+                } else if (diffMins < 1440) {
+                    const hours = Math.floor(diffMins / 60);
+                    timeAgo = `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+                } else {
+                    const days = Math.floor(diffMins / 1440);
+                    timeAgo = `${days} day${days !== 1 ? 's' : ''} ago`;
+                }
+
+                container.textContent = `Last updated ${timeAgo}`;
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
         }
 
         function renderAccountCards(accounts) {
@@ -3223,7 +3278,7 @@
             localStorage.setItem('showCreditCardPockets', showCreditCardPockets);
             updateCreditCardToggleButton();
             loadGoals(); // Reload pockets view
-            loadSidebarGoals(); // Reload sidebar
+            loadSidebarPockets(); // Reload sidebar
         }
 
         function updateCreditCardToggleButton() {
@@ -3237,6 +3292,13 @@
         function loadGoals(forceRefresh = false) {
             const url = forceRefresh ? '/api/goals?refresh=true' : '/api/goals';
             fetch(url).then(res => res.json()).then(data => {
+                // Handle error or missing data
+                if (data.error || !data.goals) {
+                    console.error('Error loading goals:', data.error);
+                    document.getElementById('goals-list').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">Error loading pockets</div>';
+                    return;
+                }
+
                 goalsDataStore = data.goals;
                 allGroups = data.all_groups || [];
 
@@ -3336,19 +3398,33 @@
 
         // Helper to render individual item with Draggable attributes
         function renderGoalItem(g, index) {
-            let pct = g.target > 0 ? Math.min((g.balance / g.target) * 100, 100) : 0;
-            const hasGoal = g.target > 0;
-
             // Check if this is a credit card pocket
             const isCreditCard = g.isCreditCard === true;
             const amountLabel = isCreditCard ? 'set aside' : 'saved';
 
-            const progressHtml = hasGoal
-                ? `<div class="exp-progress-container"><div class="exp-progress-bar" style="width: ${pct}%"></div></div>`
-                : '';
-            const detailsText = hasGoal
-                ? `<span>${fmt(g.balance)} of ${fmt(g.target)} ${amountLabel}</span>`
-                : `<span>${fmt(g.balance)} ${amountLabel}</span>`;
+            // Calculate progress
+            let pct = 0;
+            let hasGoal = false;
+            let progressHtml = '';
+            let detailsText = '';
+
+            if (isCreditCard && g.creditCardBalance && g.creditCardBalance > 0) {
+                // Credit card: show pocket balance vs actual card balance
+                pct = Math.min((g.balance / g.creditCardBalance) * 100, 100);
+                hasGoal = true;
+                progressHtml = `<div class="exp-progress-container"><div class="exp-progress-bar" style="width: ${pct}%"></div></div>`;
+                detailsText = `<span>${fmt(g.balance)} of ${fmt(g.creditCardBalance)} ${amountLabel}</span>`;
+            } else if (g.target > 0) {
+                // Regular pocket with goal
+                pct = Math.min((g.balance / g.target) * 100, 100);
+                hasGoal = true;
+                progressHtml = `<div class="exp-progress-container"><div class="exp-progress-bar" style="width: ${pct}%"></div></div>`;
+                detailsText = `<span>${fmt(g.balance)} of ${fmt(g.target)} ${amountLabel}</span>`;
+            } else {
+                // No goal
+                detailsText = `<span>${fmt(g.balance)} ${amountLabel}</span>`;
+            }
+
             const creditCardIcon = isCreditCard ? '<span style="font-size: 18px; margin-right: 8px; vertical-align: middle;">💳</span>' : '';
 
             // ADDED: draggable="true", ondragstart, data-pocket-id, touch events
@@ -3402,6 +3478,8 @@
                     isDragging = true;
                     draggedItem = targetItem;
                     draggedItem.classList.add('is-dragging');
+                    // Prevent body scrolling during drag
+                    document.body.classList.add('drag-mode-active');
                     // Haptic feedback if available
                     if (navigator.vibrate) {
                         navigator.vibrate(50);
@@ -3427,6 +3505,7 @@
             // If drag mode is active, prevent scrolling and handle drag
             if (!isDragging || !draggedItem) return;
             ev.preventDefault();
+            ev.stopPropagation();
 
             const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
             const zone = elementBelow?.closest('.group-drop-zone') || elementBelow?.closest('#goals-list');
@@ -3467,20 +3546,25 @@
             }
 
             if (!isDragging || !draggedItem) {
+                // Re-enable body scrolling just in case
+                document.body.classList.remove('drag-mode-active');
                 isDragging = false;
                 draggedItem = null;
                 return;
             }
 
             ev.preventDefault();
-            
+            ev.stopPropagation();
+
             const touch = ev.changedTouches[0];
             const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
             const zone = elementBelow?.closest('.group-drop-zone') || elementBelow?.closest('#goals-list');
             
             document.querySelectorAll('.drag-active').forEach(el => el.classList.remove('drag-active'));
             draggedItem.classList.remove('is-dragging');
-            
+            // Re-enable body scrolling
+            document.body.classList.remove('drag-mode-active');
+
             if (zone) {
                 let groupId;
                 let listContainer;
@@ -3515,6 +3599,8 @@
                 draggedItem.classList.remove('is-dragging');
             }
             document.querySelectorAll('.drag-active').forEach(el => el.classList.remove('drag-active'));
+            // Re-enable body scrolling
+            document.body.classList.remove('drag-mode-active');
             draggedItem = null;
             isDragging = false;
         }

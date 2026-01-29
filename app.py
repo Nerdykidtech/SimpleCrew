@@ -124,6 +124,14 @@ def init_db():
         print("Migrating DB: Adding provider column to credit_card_config...")
         c.execute("ALTER TABLE credit_card_config ADD COLUMN provider TEXT DEFAULT 'lunchflow'")
 
+    # Migration: Add current_balance column if it doesn't exist (for tables already in new format)
+    try:
+        c.execute("SELECT current_balance FROM credit_card_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding current_balance column to credit_card_config...")
+        c.execute("ALTER TABLE credit_card_config ADD COLUMN current_balance REAL DEFAULT 0")
+        conn.commit()
+
     # Migration: Add simplefin_access_url column if it doesn't exist (temporary, will be removed)
     try:
         c.execute("SELECT simplefin_access_url FROM credit_card_config LIMIT 1")
@@ -165,19 +173,20 @@ def init_db():
         # Column exists, need to remove it by recreating table
         print("🔄 Removing simplefin_access_url column from credit_card_config...")
 
-        # Create new table without simplefin_access_url
+        # Create new table without simplefin_access_url but with current_balance
         c.execute('''CREATE TABLE IF NOT EXISTS credit_card_config_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_id TEXT UNIQUE NOT NULL,
             account_name TEXT,
             pocket_id TEXT,
             provider TEXT DEFAULT 'lunchflow',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            current_balance REAL DEFAULT 0
         )''')
 
         # Copy data
-        c.execute('''INSERT INTO credit_card_config_new (id, account_id, account_name, pocket_id, provider, created_at)
-                     SELECT id, account_id, account_name, pocket_id, provider, created_at FROM credit_card_config''')
+        c.execute('''INSERT INTO credit_card_config_new (id, account_id, account_name, pocket_id, provider, created_at, current_balance)
+                     SELECT id, account_id, account_name, pocket_id, provider, created_at, 0 FROM credit_card_config''')
 
         # Drop old table and rename new one
         c.execute("DROP TABLE credit_card_config")
@@ -194,6 +203,14 @@ def init_db():
     except sqlite3.OperationalError:
         print("Migrating DB: Adding is_valid column to simplefin_config...")
         c.execute("ALTER TABLE simplefin_config ADD COLUMN is_valid INTEGER DEFAULT 1")
+        conn.commit()
+
+    # Migration: Add last_sync column to simplefin_config if it doesn't exist
+    try:
+        c.execute("SELECT last_sync FROM simplefin_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding last_sync column to simplefin_config...")
+        c.execute("ALTER TABLE simplefin_config ADD COLUMN last_sync TEXT")
         conn.commit()
 
     # Store seen credit card transactions to avoid duplicates
@@ -558,9 +575,10 @@ def get_goals_data():
         links_dict = {row[0]: row[1] for row in link_rows} 
         order_dict = {row[0]: row[2] for row in link_rows}
         
-        # Get credit card pocket IDs
-        c.execute("SELECT pocket_id FROM credit_card_config WHERE pocket_id IS NOT NULL")
-        credit_card_pocket_ids = {row[0] for row in c.fetchall()}
+        # Get credit card pocket IDs and their current balances
+        c.execute("SELECT pocket_id, current_balance FROM credit_card_config WHERE pocket_id IS NOT NULL")
+        credit_card_data = {row[0]: row[1] for row in c.fetchall()}
+        credit_card_pocket_ids = set(credit_card_data.keys())
         
         conn.close()
 
@@ -580,18 +598,24 @@ def get_goals_data():
                     
                     # Check if this is a credit card pocket
                     is_credit_card = p_id in credit_card_pocket_ids
-                    
-                    goals.append({
-                        "id": p_id, 
-                        "name": name, 
-                        "balance": balance, 
-                        "target": target, 
+
+                    goal_data = {
+                        "id": p_id,
+                        "name": name,
+                        "balance": balance,
+                        "target": target,
                         "status": "Active",
                         "groupId": g_id,
                         "groupName": g_name,
                         "sortOrder": s_order,
                         "isCreditCard": is_credit_card
-                    })
+                    }
+
+                    # Add credit card balance if this is a credit card pocket
+                    if is_credit_card:
+                        goal_data["creditCardBalance"] = credit_card_data.get(p_id, 0)
+
+                    goals.append(goal_data)
         
         # Python-side sort based on the DB order
         goals.sort(key=lambda x: x['sortOrder'])
@@ -1570,21 +1594,24 @@ def api_create_pocket_with_balance():
         
         account_name = row[0]
         
-        # Get current balance from LunchFlow if sync requested
+        # Get current balance from LunchFlow (always fetch for progress bar, but only sync pocket if requested)
         initial_amount = "0"
-        if sync_balance:
-            api_key = os.environ.get("LUNCHFLOW_API_KEY")
-            if api_key:
-                try:
-                    headers = {"x-api-key": api_key, "accept": "application/json"}
-                    response = requests.get(f"https://www.lunchflow.app/api/v1/accounts/{account_id}/balance", headers=headers, timeout=30)
-                    if response.status_code == 200:
-                        balance_data = response.json()
-                        # Balance is already in dollars
-                        balance_amount = balance_data.get("balance", {}).get("amount", 0)
-                        initial_amount = str(abs(balance_amount))  # Use absolute value
-                except Exception as e:
-                    print(f"Warning: Could not fetch balance: {e}")
+        current_balance_value = 0
+        api_key = os.environ.get("LUNCHFLOW_API_KEY")
+        if api_key:
+            try:
+                headers = {"x-api-key": api_key, "accept": "application/json"}
+                response = requests.get(f"https://www.lunchflow.app/api/v1/accounts/{account_id}/balance", headers=headers, timeout=30)
+                if response.status_code == 200:
+                    balance_data = response.json()
+                    # Balance is already in dollars
+                    balance_amount = balance_data.get("balance", {}).get("amount", 0)
+                    current_balance_value = abs(balance_amount)
+                    # Only set initial pocket amount if sync_balance is True
+                    if sync_balance:
+                        initial_amount = str(current_balance_value)
+            except Exception as e:
+                print(f"Warning: Could not fetch balance: {e}")
         
         # Create the pocket
         pocket_name = f"Credit Card - {account_name}"
@@ -1599,8 +1626,9 @@ def api_create_pocket_with_balance():
             conn.close()
             return jsonify({"error": "Pocket was created but no ID was returned"}), 500
         
-        # Update the config with pocket_id
-        c.execute("UPDATE credit_card_config SET pocket_id = ? WHERE account_id = ?", (pocket_id, account_id))
+        # Update the config with pocket_id and current_balance
+        c.execute("UPDATE credit_card_config SET pocket_id = ?, current_balance = ? WHERE account_id = ?",
+                 (pocket_id, current_balance_value, account_id))
         conn.commit()
         conn.close()
         
@@ -1626,11 +1654,12 @@ def api_credit_card_status():
         c.execute("SELECT account_id, account_name, pocket_id, created_at, provider FROM credit_card_config WHERE provider='simplefin'")
         simplefin_rows = c.fetchall()
 
-        # Check if SimpleFin access URL exists and is valid
-        c.execute("SELECT access_url, is_valid FROM simplefin_config LIMIT 1")
+        # Check if SimpleFin access URL exists and is valid, and get last sync time
+        c.execute("SELECT access_url, is_valid, last_sync FROM simplefin_config LIMIT 1")
         simplefin_url = c.fetchone()
         has_simplefin_access_url = bool(simplefin_url and simplefin_url[0])
         simplefin_token_invalid = bool(simplefin_url and simplefin_url[0] and simplefin_url[1] == 0)
+        last_sync = simplefin_url[2] if simplefin_url and len(simplefin_url) > 2 else None
 
         conn.close()
 
@@ -1645,6 +1674,7 @@ def api_credit_card_status():
             "provider": None,
             "hasSimplefinAccessUrl": has_simplefin_access_url,
             "simplefinTokenInvalid": simplefin_token_invalid,
+            "lastSync": last_sync,  # NEW: Last sync timestamp
             "accounts": []  # NEW: Array of all SimpleFin accounts
         }
 
@@ -1720,7 +1750,14 @@ def api_sync_balance():
         # Balance is already in dollars
         balance_amount = balance_data.get("balance", {}).get("amount", 0)
         target_balance = abs(balance_amount)
-        
+
+        # Save current balance to database
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ?", (target_balance, account_id))
+        conn.commit()
+        conn.close()
+
         # Get current pocket balance
         headers_crew = get_crew_headers()
         if not headers_crew:
@@ -1968,6 +2005,12 @@ def check_credit_card_transactions():
                 # Update per-account last sync time
                 _last_simplefin_sync[account_id] = current_time
 
+                # Update global last sync timestamp in database
+                from datetime import datetime
+                last_sync_iso = datetime.utcnow().isoformat() + 'Z'
+                c.execute("UPDATE simplefin_config SET last_sync = ?", (last_sync_iso,))
+                conn.commit()
+
         conn.close()
     except Exception as e:
         print(f"❌ Error checking credit card transactions: {e}", flush=True)
@@ -2025,6 +2068,10 @@ def check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key):
                 balance_data = balance_response.json()
                 balance_amount = balance_data.get("balance", {}).get("amount", 0)
                 target_balance = abs(balance_amount)
+
+                # Save current balance to database
+                c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ?", (target_balance, account_id))
+                conn.commit()
 
                 headers_crew = get_crew_headers()
                 if headers_crew:
@@ -2214,6 +2261,10 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
             except (ValueError, TypeError):
                 print(f"Warning: Could not parse balance '{balance_str}', using 0")
                 target_balance = 0
+
+            # Save current balance to database
+            c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ? AND provider = 'simplefin'", (target_balance, account_id))
+            conn.commit()
 
             headers_crew = get_crew_headers()
             if headers_crew:
@@ -2596,15 +2647,19 @@ def api_simplefin_create_pocket_with_balance():
         url_row = c.fetchone()
         access_url = url_row[0] if url_row else None
 
-        # Get current balance from SimpleFin if sync requested
+        # Get current balance from SimpleFin (always fetch for progress bar, but only sync pocket if requested)
         initial_amount = "0"
-        if sync_balance and access_url:
+        current_balance_value = 0
+        if access_url:
             try:
                 balance_result = simplefin_get_accounts(access_url)
                 if "accounts" in balance_result:
                     for account in balance_result["accounts"]:
                         if account["id"] == account_id:
-                            initial_amount = str(abs(account["balance"]))
+                            current_balance_value = abs(account["balance"])
+                            # Only set initial pocket amount if sync_balance is True
+                            if sync_balance:
+                                initial_amount = str(current_balance_value)
                             break
             except Exception as e:
                 print(f"Warning: Could not fetch balance: {e}")
@@ -2622,8 +2677,9 @@ def api_simplefin_create_pocket_with_balance():
             conn.close()
             return jsonify({"error": "Pocket was created but no ID was returned"}), 500
 
-        # Update the config with pocket_id
-        c.execute("UPDATE credit_card_config SET pocket_id = ? WHERE account_id = ? AND provider = 'simplefin'", (pocket_id, account_id))
+        # Update the config with pocket_id and current_balance
+        c.execute("UPDATE credit_card_config SET pocket_id = ?, current_balance = ? WHERE account_id = ? AND provider = 'simplefin'",
+                 (pocket_id, current_balance_value, account_id))
         conn.commit()
 
         # Always fetch transactions immediately with is_initial_sync=True to avoid money transfers
@@ -2696,6 +2752,13 @@ def api_simplefin_sync_balance():
             if account["id"] == account_id:
                 target_balance = abs(account["balance"])
                 break
+
+        # Save current balance to database
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ? AND provider = 'simplefin'", (target_balance, account_id))
+        conn.commit()
+        conn.close()
 
         # Get current pocket balance
         headers_crew = get_crew_headers()
