@@ -27,6 +27,7 @@
                     </div>
                 </div>
 
+
                 <!-- Provider Selection -->
                 <div id="provider-selection" style="display: none;">
                     <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark); text-align: center;">Choose Your Provider</h3>
@@ -63,24 +64,27 @@
 
                     <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">LunchFlow Setup</h3>
 
-                    <!-- API Key Setup Instructions -->
-                    <div id="api-key-setup" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
-                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Configure LunchFlow API Key</h3>
-                    <ol style="line-height: 2; color: var(--text-light); padding-left: 20px;">
-                        <li>Sign up for a <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow account</a></li>
-                        <li>Create an API destination in your LunchFlow dashboard</li>
-                        <li>Copy your API key from the destination settings</li>
-                        <li>Add it to your <code style="background: #e9ecef; padding: 2px 6px; border-radius: 4px; font-family: monospace;">docker-compose.yml</code> file:</li>
-                    </ol>
-                    <div style="background: #2d2d2d; color: #f8f8f2; padding: 16px; border-radius: 8px; margin: 16px 0; font-family: monospace; font-size: 13px; overflow-x: auto;">
-                        <div>environment:</div>
-                        <div>&nbsp;&nbsp;- BEARER_TOKEN=...</div>
-                        <div>&nbsp;&nbsp;- LUNCHFLOW_API_KEY=<span style="color: #ffd700;">YOUR_API_KEY_HERE</span></div>
+                    <!-- API Key Input -->
+                    <div id="lunchflow-api-key-input" style="background: #f8f9fa; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed #ddd;">
+                        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Step 1: Enter Your LunchFlow API Key</h3>
+                        <ol style="line-height: 2; color: var(--text-light); padding-left: 20px; margin-bottom: 20px;">
+                            <li>Sign up for a <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow account</a></li>
+                            <li>Create an API destination in your LunchFlow dashboard</li>
+                            <li>Copy your API key from the destination settings</li>
+                            <li>Paste the API key below and click "Save API Key"</li>
+                        </ol>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">LunchFlow API Key</label>
+                            <input type="password" id="lunchflow-key-input" placeholder="Paste your API key here" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-family: monospace; font-size: 13px;">
+                        </div>
+                        <div id="lunchflow-error" style="background: #ffebee; color: #c62828; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                        <button onclick="saveLunchFlowAPIKey()" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                            Save API Key
+                        </button>
+                        <p style="color: var(--text-light); margin-top: 16px; font-size: 14px;">
+                            Note: The API key will be securely stored in your database. You can find it in your LunchFlow dashboard settings.
+                        </p>
                     </div>
-                    <p style="color: var(--text-light); margin-top: 16px; font-size: 14px;">
-                        Once you've added your API key, restart the Docker container and refresh this page.
-                    </p>
-                </div>
 
                     <!-- Account Selection (shown when API key is configured) -->
                     <div id="account-selection" style="display: none;">

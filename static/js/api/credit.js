@@ -10,6 +10,46 @@
 // Note: All state variables (selectedProvider, simpleFinAccessUrl, etc.) are defined in state.js
 
 /**
+ * Save LunchFlow API key from UI
+ */
+async function saveLunchFlowAPIKey() {
+    const apiKey = document.getElementById('lunchflow-key-input').value.trim();
+    const errorEl = document.getElementById('lunchflow-error');
+
+    if (!apiKey) {
+        errorEl.textContent = 'Please enter an API key';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    errorEl.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/lunchflow/save-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Hide API key input and show account selection
+            document.getElementById('lunchflow-api-key-input').style.display = 'none';
+            document.getElementById('account-selection').style.display = 'block';
+            // Load accounts
+            loadLunchFlowAccounts();
+        } else {
+            errorEl.textContent = data.error || 'Failed to save API key';
+            errorEl.style.display = 'block';
+        }
+    } catch (error) {
+        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.style.display = 'block';
+    }
+}
+
+/**
  * Show provider selection screen
  */
 function showProviderSelection() {
@@ -39,20 +79,23 @@ function selectProvider(provider) {
         document.getElementById('simplefin-setup').style.display = 'block';
         document.getElementById('lunchflow-setup').style.display = 'none';
 
-        // Fetch SimpleFin access URL and load accounts
+        // Fetch SimpleFin access URL and load accounts if available
         fetch('/api/simplefin/get-access-url')
             .then(res => res.json())
             .then(data => {
                 if (data.success && data.accessUrl) {
+                    // Access URL exists, proceed to load accounts
                     simpleFinAccessUrl = data.accessUrl;
                     loadSimpleFinAccounts();
                 } else {
-                    appAlert('Error: SimpleFin access URL not found. Please reconnect SimpleFin.', 'Error');
+                    // No access URL yet - this is normal for first-time setup
+                    // Just show the token input section (already visible)
+                    console.log('No SimpleFin access URL found - showing token input');
                 }
             })
             .catch(err => {
                 console.error('Error fetching SimpleFin access URL:', err);
-                appAlert('Error loading SimpleFin: ' + err.message, 'Error');
+                // Don't show error alert - just log it
             });
     }
 }
@@ -302,12 +345,31 @@ function loadCreditAccounts(status) {
  * Load LunchFlow accounts for selection
  */
 function loadLunchFlowAccounts() {
-    const accountsList = document.getElementById('accounts-list');
-    accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;"><div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>Loading accounts...</div>';
-
-    fetch('/api/lunchflow/accounts')
+    // First check if API key is configured
+    fetch('/api/lunchflow/get-config')
         .then(res => res.json())
+        .then(configData => {
+            if (!configData.hasApiKey) {
+                // Show API key input, hide account selection
+                document.getElementById('lunchflow-api-key-input').style.display = 'block';
+                document.getElementById('account-selection').style.display = 'none';
+                return;
+            }
+
+            // API key is configured, proceed to load accounts
+            document.getElementById('lunchflow-api-key-input').style.display = 'none';
+            document.getElementById('account-selection').style.display = 'block';
+
+            const accountsList = document.getElementById('accounts-list');
+            accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;"><div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--simple-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>Loading accounts...</div>';
+
+            return fetch('/api/lunchflow/accounts');
+        })
+        .then(res => res ? res.json() : null)
         .then(data => {
+            if (!data) return; // API key not configured, already handled above
+
+
             if (data.error) {
                 accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
                     <strong>Error loading accounts:</strong> ${data.error}
@@ -363,9 +425,12 @@ function loadLunchFlowAccounts() {
             accountsList.innerHTML = html;
         })
         .catch(err => {
-            accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
-                <strong>Error:</strong> ${err.message}
-            </div>`;
+            const accountsList = document.getElementById('accounts-list');
+            if (accountsList) {
+                accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+                    <strong>Error:</strong> ${err.message}
+                </div>`;
+            }
         });
 }
 

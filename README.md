@@ -41,7 +41,6 @@ A modern web application that provides a comprehensive financial dashboard inter
 
 ### Prerequisites
 - Docker and Docker Compose installed
-- API tokens (Bearer Token)
 
 ### Installation
 
@@ -51,30 +50,23 @@ A modern web application that provides a comprehensive financial dashboard inter
    cd SimpleCrew
    ```
 
-2. **Create your configuration file**
-
-   Copy the template and configure your credentials:
-   ```bash
-   cp docker-compose.yml.template docker-compose.yml
-   ```
-
-   Edit `docker-compose.yml` and replace the placeholder tokens:
-   ```yaml
-   environment:
-     - BEARER_TOKEN=Bearer your_actual_crew_bearer_token_here
-     - LUNCHFLOW_API_KEY=your_lunchflow_api_key_here  # Optional
-   ```
-
-   > **Note**: `docker-compose.yml` is in `.gitignore` so your credentials won't be committed to Git.
-
-3. **Start the application**
+2. **Start the application**
    ```bash
    docker-compose up -d --build
    ```
 
-4. **Access the application**
+3. **Complete onboarding**
 
    Open your browser and navigate to: `http://localhost:8080`
+
+   On first run, you'll be guided through an onboarding process to:
+   - Select your banking provider (Crew or Monzo)
+   - Enter your Crew bearer token (stored securely in the database)
+   - Configure LunchFlow API key (optional, for credit card tracking)
+
+   All credentials are stored securely in the local SQLite database, not in environment variables.
+
+> **Note**: For existing installations with tokens in `docker-compose.yml`, those will be automatically migrated to the database on first run.
 
 ### Manual Setup (without Docker)
 
@@ -83,31 +75,39 @@ A modern web application that provides a comprehensive financial dashboard inter
    pip install -r requirements.txt
    ```
 
-2. **Set environment variables**
-   ```bash
-   export BEARER_TOKEN=your_bearer_token
-   export DB_FILE=data/savings_data.db
-   ```
-
-3. **Create data directory**
+2. **Create data directory**
    ```bash
    mkdir -p data
    ```
 
-4. **Run the application**
+3. **Run the application**
    ```bash
    python app.py
    ```
 
+4. **Complete onboarding**
+
+   Navigate to `http://localhost:8080` and follow the onboarding flow to configure your credentials.
+
 ## Configuration
 
-### Environment Variables
+### Database-Stored Credentials
+
+As of the latest version, all API credentials are stored securely in the SQLite database through the onboarding flow:
+- **Crew Bearer Token**: Configured during first-time setup
+- **LunchFlow API Key**: Configured in the Credit Cards section when needed
+
+### Environment Variables (Optional - Backward Compatibility)
+
+Environment variables are still supported for backward compatibility but are **no longer required**:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `BEARER_TOKEN` | Crew API authentication bearer token | Yes |
-| `LUNCHFLOW_API_KEY` | LunchFlow API key for credit card integration | No (only if using LunchFlow) |
+| `BEARER_TOKEN` | Crew API authentication bearer token | No (configured via onboarding UI) |
+| `LUNCHFLOW_API_KEY` | LunchFlow API key for credit card integration | No (configured via Credit Cards UI) |
 | `DB_FILE` | SQLite database file path | No (defaults to `savings_data.db`) |
+
+> **Migration**: If you have existing environment variables set, they will be automatically migrated to the database on first run, and the app will continue to work seamlessly.
 
 ### API Configuration
 
@@ -241,8 +241,9 @@ docker-compose down
 ### Common Issues
 
 1. **Authentication Errors**
-   - Verify `BEARER_TOKEN` is correctly set
-   - Check token expiration and refresh if necessary
+   - Complete the onboarding flow to configure your Crew bearer token
+   - Check token validity by testing it in the Crew web app
+   - If needed, re-enter your token through the onboarding screen (delete database and restart)
 
 2. **Database Issues**
    - Ensure the `data` directory has write permissions
@@ -278,17 +279,22 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Security Notes
 
-- **Never commit API tokens to version control**
-  - `docker-compose.yml` is in `.gitignore` to protect your credentials
-  - Use the provided `docker-compose.yml.template` as a starting point
+- **Credential Storage**
+  - All API credentials are stored in the local SQLite database (`data/savings_data.db`)
+  - The `data/` directory is excluded from Git to protect your credentials and data
+  - Database files are never committed to version control
+- **Token Security**
+  - Tokens are validated before being stored in the database
+  - Bearer tokens are stored securely and used only for API authentication
+  - The onboarding flow ensures proper token format and validity
 - **User data protection**
-  - The `data/` directory is excluded from Git to protect your database
   - `.claude/` directory is excluded to protect your development sessions
+  - `docker-compose.yml` is in `.gitignore` if you use environment variables
 - **Best practices**
-  - Regularly rotate API credentials
-  - Implement proper input validation for user data
-  - Consider implementing rate limiting for production use
+  - Regularly rotate API credentials (update through the onboarding flow)
+  - Backup your `data/` directory to preserve your database
   - Keep your Docker images updated
+  - Consider implementing rate limiting for production use
 
 ## Support
 

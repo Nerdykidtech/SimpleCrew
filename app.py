@@ -328,8 +328,61 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # Onboarding flow tables
+    c.execute('''CREATE TABLE IF NOT EXISTS onboarding_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        is_completed INTEGER DEFAULT 0,
+        completed_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS crew_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bearer_token TEXT NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS lunchflow_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     conn.commit()
+
+    # Auto-migrate env vars to database on first run
+    migrate_tokens_to_db(c, conn)
+
     conn.close()
+
+def migrate_tokens_to_db(cursor, connection):
+    """Auto-migrate env vars to database on first run"""
+    # Check if already migrated Crew token
+    cursor.execute("SELECT id FROM crew_config LIMIT 1")
+    has_crew = cursor.fetchone()
+
+    if not has_crew:
+        bearer = os.environ.get("BEARER_TOKEN")
+        if bearer:
+            cursor.execute("INSERT INTO crew_config (bearer_token) VALUES (?)", (bearer,))
+            cursor.execute("INSERT INTO onboarding_config (is_completed, completed_at) VALUES (1, CURRENT_TIMESTAMP)")
+            print("✅ Migrated BEARER_TOKEN from env vars to database")
+
+    # Check if already migrated LunchFlow API key
+    cursor.execute("SELECT id FROM lunchflow_config LIMIT 1")
+    has_lunchflow = cursor.fetchone()
+
+    if not has_lunchflow:
+        api_key = os.environ.get("LUNCHFLOW_API_KEY")
+        if api_key and api_key != "none":
+            cursor.execute("INSERT INTO lunchflow_config (api_key) VALUES (?)", (api_key,))
+            print("✅ Migrated LUNCHFLOW_API_KEY from env vars to database")
+
+    connection.commit()
 
 def log_balance(balance):
     conn = sqlite3.connect(DB_FILE)
@@ -354,10 +407,39 @@ def get_history():
         "values": [row[1] for row in data]
     }
 
+# --- TOKEN RETRIEVAL HELPERS ---
+def get_crew_bearer_token():
+    """Get Crew bearer token (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT bearer_token FROM crew_config WHERE is_valid = 1 LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var for backward compatibility
+    return os.environ.get("BEARER_TOKEN")
+
+def get_lunchflow_api_key():
+    """Get LunchFlow API key (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT api_key FROM lunchflow_config WHERE is_valid = 1 LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var
+    env_key = os.environ.get("LUNCHFLOW_API_KEY")
+    return env_key if env_key and env_key != "none" else None
+
 # --- API HELPERS ---
 def get_crew_headers():
-    # We now look for Environment Variables provided by Docker
-    bearer_token = os.environ.get("BEARER_TOKEN")
+    bearer_token = get_crew_bearer_token()
 
 
     return {
@@ -1279,7 +1361,20 @@ def create_bill_action(name, amount, frequency_key, day_of_month, match_string=N
 
 # --- ROUTES ---
 @app.route('/')
-def index(): return render_template('index.html')
+def index():
+    # Check if onboarding is complete
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT is_completed FROM onboarding_config LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    is_onboarding_complete = bool(row and row[0] == 1) if row else False
+
+    if not is_onboarding_complete:
+        return render_template('onboarding.html')
+
+    return render_template('index.html')
 
 @app.route('/debug')
 def debug(): return render_template('debug.html')
@@ -1292,6 +1387,102 @@ def serve_manifest():
 @app.route('/sw.js')
 def serve_sw():
     return send_from_directory('static', 'sw.js', mimetype='application/javascript')
+
+# --- ONBOARDING API ENDPOINTS ---
+@app.route('/api/onboarding/status')
+def api_onboarding_status():
+    """Check if onboarding is complete"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT is_completed FROM onboarding_config LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    is_complete = bool(row and row[0] == 1) if row else False
+    has_crew = get_crew_bearer_token() is not None
+
+    return jsonify({
+        "isComplete": is_complete,
+        "hasCrewToken": has_crew
+    })
+
+@app.route('/api/onboarding/crew/save-token', methods=['POST'])
+def api_save_crew_token():
+    """Save and validate Crew bearer token"""
+    data = request.get_json()
+    bearer_token = data.get('bearerToken', '').strip()
+
+    if not bearer_token:
+        return jsonify({"success": False, "error": "Token is required"}), 400
+
+    # Validate token by attempting to fetch user data
+    try:
+        headers = {
+            "accept": "*/*",
+            "content-type": "application/json",
+            "authorization": bearer_token,
+            "user-agent": "Crew/1 CFNetwork/3860.300.31 Darwin/25.2.0"
+        }
+        query_string = """ query CurrentUser { currentUser { id accounts { id } } } """
+        response = requests.post(
+            "https://api.trycrew.com/willow/graphql",
+            headers=headers,
+            json={"operationName": "CurrentUser", "query": query_string},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid token - authentication failed"}), 400
+
+        # Check if response contains valid user data
+        result = response.json()
+        if "errors" in result or not result.get("data", {}).get("currentUser"):
+            return jsonify({"success": False, "error": "Invalid token"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Token validation failed: {str(e)}"}), 500
+
+    # Save to database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM crew_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE crew_config SET bearer_token = ?, is_valid = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (bearer_token, existing[0]))
+    else:
+        c.execute("INSERT INTO crew_config (bearer_token, is_valid) VALUES (?, 1)", (bearer_token,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+@app.route('/api/onboarding/complete', methods=['POST'])
+def api_complete_onboarding():
+    """Mark onboarding as complete"""
+    # Verify token exists
+    if not get_crew_bearer_token():
+        return jsonify({"success": False, "error": "No Crew token configured"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM onboarding_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE onboarding_config SET is_completed = 1, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (existing[0],))
+    else:
+        c.execute("INSERT INTO onboarding_config (is_completed, completed_at) VALUES (1, CURRENT_TIMESTAMP)")
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
 
 # --- API ROUTES ---
 @app.route('/api/family')
@@ -1594,10 +1785,60 @@ def api_intercom():
     return jsonify(get_intercom_data())
 
 # --- LUNCHFLOW API ENDPOINTS ---
+@app.route('/api/lunchflow/get-config')
+def api_get_lunchflow_config():
+    """Get LunchFlow configuration status"""
+    api_key = get_lunchflow_api_key()
+    return jsonify({
+        "hasApiKey": api_key is not None,
+        "isConfigured": api_key is not None
+    })
+
+@app.route('/api/lunchflow/save-key', methods=['POST'])
+def api_save_lunchflow_key():
+    """Save LunchFlow API key (called from Credit Cards section)"""
+    data = request.get_json()
+    api_key = data.get('apiKey', '').strip()
+
+    if not api_key:
+        return jsonify({"success": False, "error": "API key is required"}), 400
+
+    # Validate key by attempting to fetch accounts
+    try:
+        response = requests.get(
+            "https://www.lunchflow.app/api/v1/accounts",
+            headers={"x-api-key": api_key},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid API key"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Validation failed: {str(e)}"}), 500
+
+    # Save to database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM lunchflow_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE lunchflow_config SET api_key = ?, is_valid = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (api_key, existing[0]))
+    else:
+        c.execute("INSERT INTO lunchflow_config (api_key, is_valid) VALUES (?, 1)", (api_key,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
 @app.route('/api/lunchflow/accounts')
 def api_lunchflow_accounts():
     """List all accounts from LunchFlow"""
-    api_key = os.environ.get("LUNCHFLOW_API_KEY")
+    api_key = get_lunchflow_api_key()
     if not api_key:
         return jsonify({"error": "LunchFlow API key not configured. Please set LUNCHFLOW_API_KEY in docker-compose.yml"}), 400
     
@@ -1654,7 +1895,7 @@ def api_set_credit_card():
 @app.route('/api/lunchflow/get-balance/<account_id>')
 def api_get_balance(account_id):
     """Get the balance for a specific LunchFlow account"""
-    api_key = os.environ.get("LUNCHFLOW_API_KEY")
+    api_key = get_lunchflow_api_key()
     if not api_key:
         return jsonify({"error": "LunchFlow API key not configured"}), 400
     
@@ -1703,7 +1944,7 @@ def api_create_pocket_with_balance():
         # Get current balance from LunchFlow (always fetch for progress bar, but only sync pocket if requested)
         initial_amount = "0"
         current_balance_value = 0
-        api_key = os.environ.get("LUNCHFLOW_API_KEY")
+        api_key = get_lunchflow_api_key()
         if api_key:
             try:
                 headers = {"x-api-key": api_key, "accept": "application/json"}
@@ -1746,7 +1987,7 @@ def api_create_pocket_with_balance():
 @app.route('/api/lunchflow/credit-card-status')
 def api_credit_card_status():
     """Get the current credit card account configuration (unified for both providers)"""
-    api_key = os.environ.get("LUNCHFLOW_API_KEY")
+    api_key = get_lunchflow_api_key()
 
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -1840,9 +2081,9 @@ def api_sync_balance():
             return jsonify({"error": "No pocket found for this account"}), 400
         
         pocket_id = row[0]
-        
+
         # Get balance from LunchFlow
-        api_key = os.environ.get("LUNCHFLOW_API_KEY")
+        api_key = get_lunchflow_api_key()
         if not api_key:
             return jsonify({"error": "LunchFlow API key not configured"}), 400
         
@@ -2100,7 +2341,7 @@ def check_credit_card_transactions():
 
             # Handle based on provider
             if provider == 'lunchflow':
-                api_key = os.environ.get("LUNCHFLOW_API_KEY")
+                api_key = get_lunchflow_api_key()
                 if not api_key:
                     print("⚠️ LUNCHFLOW_API_KEY not set")
                     continue
