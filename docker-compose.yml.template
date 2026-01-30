@@ -2,11 +2,13 @@ version: '3.8'
 
 services:
   finance-app:
-    build: .
+    image: ghcr.io/nerdykidtech/simplecrew:latest
+    container_name: simplecrew
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/app/data  # Saves your DB to a folder named 'data' next to this file
+      - ./data:/app/data
     environment:
-      - BEARER_TOKEN=YOUR_CREW_BEARER_TOKEN_HERE
-      - LUNCHFLOW_API_KEY=YOUR_LUNCHFLOW_API_KEY_HERE  # Optional: only needed if using LunchFlow
+      - BEARER_TOKEN=${BEARER_TOKEN}
+      - LUNCHFLOW_API_KEY=${LUNCHFLOW_API_KEY}
+    restart: unless-stopped
