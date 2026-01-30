@@ -52,3 +52,6 @@ Thumbs.db
 # Environment variables (if you add any)
 .env
 .env.local
+.clineignore
+.clinerules
+@schema.graphql
