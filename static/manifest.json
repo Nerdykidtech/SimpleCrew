@@ -9,12 +9,14 @@
     {
       "src": "https://d31s10tn3clc14.cloudfront.net/imgs/deposits/Review+Logos/simple-logo.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "https://d31s10tn3clc14.cloudfront.net/imgs/deposits/Review+Logos/simple-logo.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
