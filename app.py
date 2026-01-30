@@ -22,6 +22,85 @@ _background_thread_lock = threading.Lock()
 _last_simplefin_sync = {}  # Dictionary: account_id -> timestamp
 _simplefin_sync_interval = 3600  # 1 hour in seconds
 
+def get_simplefin_sync_interval():
+    """Get the SimpleFin sync interval from database or return default"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT sync_interval FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        return int(row[0]) if row and row[0] else 3600
+    except Exception as e:
+        print(f"Error getting sync interval: {e}")
+        return 3600
+
+def should_sync_simplefin(account_id):
+    """Check if SimpleFin account should sync now based on schedule or interval"""
+    import json
+    from datetime import datetime, timezone
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT sync_times, sync_timezone FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        # If scheduled times are configured, use time-based sync
+        if row and row[0]:
+            sync_times = json.loads(row[0])  # Array of UTC times like ["14:00", "02:00"]
+
+            # Get current UTC time
+            now_utc = datetime.now(timezone.utc)
+            current_time = now_utc.strftime("%H:%M")
+
+            # Check if we're within 5 minutes of any scheduled time
+            for scheduled_time in sync_times:
+                scheduled_hour, scheduled_min = map(int, scheduled_time.split(":"))
+
+                # Calculate time difference in minutes
+                current_minutes = now_utc.hour * 60 + now_utc.minute
+                scheduled_minutes = scheduled_hour * 60 + scheduled_min
+                diff = abs(current_minutes - scheduled_minutes)
+
+                # Account for day wrap-around
+                if diff > 720:  # More than 12 hours difference
+                    diff = 1440 - diff
+
+                # If within 5 minutes of scheduled time, check if we already synced recently
+                if diff <= 5:
+                    last_sync = _last_simplefin_sync.get(account_id, 0)
+                    # Only sync if we haven't synced in the last 10 minutes
+                    if time.time() - last_sync > 600:
+                        return True, f"scheduled time {scheduled_time} UTC"
+
+            return False, "not scheduled time"
+        else:
+            # Fall back to interval-based sync
+            sync_interval = get_simplefin_sync_interval()
+            current_time = time.time()
+            last_sync = _last_simplefin_sync.get(account_id, 0)
+            time_since_last_sync = current_time - last_sync
+
+            if time_since_last_sync < sync_interval:
+                minutes_remaining = int((sync_interval - time_since_last_sync) / 60)
+                return False, f"next sync in {minutes_remaining} minutes"
+
+            return True, "interval elapsed"
+    except Exception as e:
+        print(f"Error checking sync schedule: {e}")
+        # Fall back to interval-based sync on error
+        sync_interval = get_simplefin_sync_interval()
+        current_time = time.time()
+        last_sync = _last_simplefin_sync.get(account_id, 0)
+        time_since_last_sync = current_time - last_sync
+
+        if time_since_last_sync >= sync_interval:
+            return True, "interval elapsed (fallback)"
+
+        return False, "error, using interval fallback"
+
 # --- CACHING SYSTEM ---
 class SimpleCache:
     def __init__(self, ttl_seconds=300):
@@ -211,6 +290,30 @@ def init_db():
     except sqlite3.OperationalError:
         print("Migrating DB: Adding last_sync column to simplefin_config...")
         c.execute("ALTER TABLE simplefin_config ADD COLUMN last_sync TEXT")
+        conn.commit()
+
+    # Migration: Add sync_interval column to simplefin_config if it doesn't exist
+    try:
+        c.execute("SELECT sync_interval FROM simplefin_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding sync_interval column to simplefin_config...")
+        c.execute("ALTER TABLE simplefin_config ADD COLUMN sync_interval INTEGER DEFAULT 3600")
+        conn.commit()
+
+    # Migration: Add sync_times column to simplefin_config if it doesn't exist
+    try:
+        c.execute("SELECT sync_times FROM simplefin_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding sync_times column to simplefin_config...")
+        c.execute("ALTER TABLE simplefin_config ADD COLUMN sync_times TEXT")
+        conn.commit()
+
+    # Migration: Add sync_timezone column to simplefin_config if it doesn't exist
+    try:
+        c.execute("SELECT sync_timezone FROM simplefin_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding sync_timezone column to simplefin_config...")
+        c.execute("ALTER TABLE simplefin_config ADD COLUMN sync_timezone TEXT")
         conn.commit()
 
     # Store seen credit card transactions to avoid duplicates
@@ -1968,13 +2071,29 @@ def check_credit_card_transactions():
             conn.close()
             return
 
-        # Get SimpleFin access URL once (shared across all SimpleFin accounts)
-        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        # Get SimpleFin access URL and last sync time
+        c.execute("SELECT access_url, last_sync FROM simplefin_config LIMIT 1")
         url_row = c.fetchone()
         simplefin_access_url = url_row[0] if url_row and url_row[0] else None
+        db_last_sync = url_row[1] if url_row and len(url_row) > 1 else None
+
+        # Initialize in-memory rate limiter from database if not already set
+        global _last_simplefin_sync
+        if db_last_sync and not _last_simplefin_sync:
+            # Parse ISO timestamp and convert to Unix timestamp
+            from datetime import datetime
+            try:
+                last_sync_dt = datetime.fromisoformat(db_last_sync.replace('Z', '+00:00'))
+                last_sync_timestamp = last_sync_dt.timestamp()
+                # Pre-populate for all SimpleFin accounts with the global last sync
+                for row in rows:
+                    if row[2] == 'simplefin':  # provider
+                        _last_simplefin_sync[row[0]] = last_sync_timestamp
+                print(f"📊 Initialized SimpleFin rate limiter from database: last sync was {db_last_sync}", flush=True)
+            except Exception as e:
+                print(f"⚠️ Failed to parse last_sync from database: {e}", flush=True)
 
         # Process each account
-        global _last_simplefin_sync
         for row in rows:
             account_id, pocket_id, provider = row
             print(f"🔍 Checking transactions for {provider} account {account_id}, pocket {pocket_id}", flush=True)
@@ -1988,25 +2107,22 @@ def check_credit_card_transactions():
                 check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key)
 
             elif provider == 'simplefin':
-                # Check per-account rate limit
-                current_time = time.time()
-                last_sync = _last_simplefin_sync.get(account_id, 0)
-                time_since_last_sync = current_time - last_sync
+                # Check if we should sync now based on schedule or interval
+                should_sync, reason = should_sync_simplefin(account_id)
 
-                if time_since_last_sync < _simplefin_sync_interval:
-                    minutes_remaining = int((_simplefin_sync_interval - time_since_last_sync) / 60)
-                    print(f"⏰ SimpleFin sync skipped for account {account_id} (next sync in {minutes_remaining} minutes)", flush=True)
+                if not should_sync:
+                    print(f"⏰ SimpleFin sync skipped for account {account_id} ({reason})", flush=True)
                     continue
 
                 if not simplefin_access_url:
                     print(f"⚠️ SimpleFin access URL not found in simplefin_config", flush=True)
                     continue
 
-                print(f"✅ Calling check_simplefin_transactions for account {account_id}", flush=True)
+                print(f"✅ Calling check_simplefin_transactions for account {account_id} ({reason})", flush=True)
                 check_simplefin_transactions(conn, c, account_id, pocket_id, simplefin_access_url)
 
                 # Update per-account last sync time
-                _last_simplefin_sync[account_id] = current_time
+                _last_simplefin_sync[account_id] = time.time()
 
                 # Update global last sync timestamp in database
                 from datetime import datetime
@@ -2125,10 +2241,10 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
     try:
         print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id} (initial={is_initial_sync})", flush=True)
 
-        # Calculate date range: last 90 days to now
+        # Calculate date range: last 30 days to now
         import time
         end_timestamp = int(time.time())
-        start_timestamp = end_timestamp - (90 * 24 * 60 * 60)  # 90 days ago
+        start_timestamp = end_timestamp - (30 * 24 * 60 * 60)  # 30 days ago
 
         # Fetch account data from SimpleFin with date range for transactions
         # SimpleFin requires start-date and end-date to return transaction data
@@ -2255,8 +2371,8 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
             print(f"⏭️ Skipping automatic money movement for initial sync ({len(new_transactions)} historical transactions stored)", flush=True)
 
         # Update pocket balance to match SimpleFin balance
-        # Skip this on initial sync - balance update should only happen on subsequent syncs
-        if pocket_id and not is_initial_sync:
+        # Always save the balance to database, even during initial sync
+        if pocket_id:
             # SimpleFin returns balance as a string, convert to float
             balance_str = target_account.get("balance", "0")
             try:
@@ -2265,41 +2381,46 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                 print(f"Warning: Could not parse balance '{balance_str}', using 0")
                 target_balance = 0
 
-            # Save current balance to database
+            # Save current balance to database (always, even for initial sync)
             c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ? AND provider = 'simplefin'", (target_balance, account_id))
             conn.commit()
 
-            headers_crew = get_crew_headers()
-            if headers_crew:
-                query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
-                response_crew = requests.post(URL, headers=headers_crew, json={
-                    "operationName": "GetSubaccount",
-                    "variables": {"id": pocket_id},
-                    "query": query_string
-                })
+            # Skip automatic pocket syncing on initial sync to avoid huge transfers
+            if is_initial_sync:
+                print(f"📊 Saved balance ${target_balance} to database (skipping pocket sync for initial sync)", flush=True)
+            else:
+                # Only sync pocket balance during regular syncs (not initial sync)
+                headers_crew = get_crew_headers()
+                if headers_crew:
+                    query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                    response_crew = requests.post(URL, headers=headers_crew, json={
+                        "operationName": "GetSubaccount",
+                        "variables": {"id": pocket_id},
+                        "query": query_string
+                    })
 
-                crew_data = response_crew.json()
-                current_balance = 0
-                try:
-                    current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
-                except:
-                    pass
+                    crew_data = response_crew.json()
+                    current_balance = 0
+                    try:
+                        current_balance = crew_data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                    except:
+                        pass
 
-                difference = target_balance - current_balance
-                all_subs = get_subaccounts_list()
-                if "error" not in all_subs:
-                    checking_subaccount_id = None
-                    for sub in all_subs.get("subaccounts", []):
-                        if sub["name"] == "Checking":
-                            checking_subaccount_id = sub["id"]
-                            break
+                    difference = target_balance - current_balance
+                    all_subs = get_subaccounts_list()
+                    if "error" not in all_subs:
+                        checking_subaccount_id = None
+                        for sub in all_subs.get("subaccounts", []):
+                            if sub["name"] == "Checking":
+                                checking_subaccount_id = sub["id"]
+                                break
 
-                    if checking_subaccount_id and abs(difference) > 0.01:
-                        if difference > 0:
-                            move_money(checking_subaccount_id, pocket_id, str(difference), f"SimpleFin credit card sync")
-                        else:
-                            move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"SimpleFin credit card sync")
-                    cache.clear()
+                        if checking_subaccount_id and abs(difference) > 0.01:
+                            if difference > 0:
+                                move_money(checking_subaccount_id, pocket_id, str(difference), f"SimpleFin credit card sync")
+                            else:
+                                move_money(pocket_id, checking_subaccount_id, str(abs(difference)), f"SimpleFin credit card sync")
+                        cache.clear()
 
         if new_transactions:
             print(f"✅ Found {len(new_transactions)} new SimpleFin credit card transactions")
@@ -3016,6 +3137,118 @@ def api_simplefin_disconnect():
 
         cache.clear()
         return jsonify({"success": True, "message": "SimpleFin completely disconnected. All pockets deleted and funds returned."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/sync-schedule', methods=['GET'])
+def api_get_simplefin_sync_schedule():
+    """Get the current SimpleFin sync schedule setting"""
+    import json
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT sync_times, sync_timezone FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        if row and row[0]:
+            sync_times = json.loads(row[0])
+            sync_timezone = row[1] if row[1] else "UTC"
+            return jsonify({
+                "success": True,
+                "syncTimes": sync_times,
+                "syncTimezone": sync_timezone
+            })
+        else:
+            # Default to empty (will use interval fallback)
+            return jsonify({
+                "success": True,
+                "syncTimes": None,
+                "syncTimezone": None
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/sync-schedule', methods=['POST'])
+def api_set_simplefin_sync_schedule():
+    """Update the SimpleFin sync schedule setting"""
+    import json
+    data = request.json
+    sync_times = data.get('syncTimes')  # Array of times in UTC like ["14:00", "02:00"]
+    sync_timezone = data.get('syncTimezone', 'UTC')
+
+    if not sync_times or not isinstance(sync_times, list):
+        return jsonify({"error": "syncTimes array is required"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        c.execute("SELECT id FROM simplefin_config LIMIT 1")
+        existing = c.fetchone()
+
+        if existing:
+            c.execute("UPDATE simplefin_config SET sync_times = ?, sync_timezone = ? WHERE id = ?",
+                     (json.dumps(sync_times), sync_timezone, existing[0]))
+        else:
+            return jsonify({"error": "SimpleFin not configured"}), 400
+
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+
+        return jsonify({
+            "success": True,
+            "syncTimes": sync_times,
+            "syncTimezone": sync_timezone
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/sync-now', methods=['POST'])
+def api_simplefin_sync_now():
+    """Manually trigger SimpleFin sync for all accounts"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get SimpleFin access URL
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        url_row = c.fetchone()
+        access_url = url_row[0] if url_row and url_row[0] else None
+
+        if not access_url:
+            conn.close()
+            return jsonify({"error": "SimpleFin not configured"}), 400
+
+        # Get all SimpleFin accounts
+        c.execute("SELECT account_id, pocket_id FROM credit_card_config WHERE provider = 'simplefin'")
+        accounts = c.fetchall()
+
+        if not accounts:
+            conn.close()
+            return jsonify({"error": "No SimpleFin accounts configured"}), 400
+
+        # Reset rate limiter for manual sync (allow immediate sync)
+        global _last_simplefin_sync
+        synced_count = 0
+
+        for account_id, pocket_id in accounts:
+            try:
+                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url)
+                _last_simplefin_sync[account_id] = time.time()
+                synced_count += 1
+            except Exception as e:
+                print(f"Error syncing account {account_id}: {e}")
+
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": f"Synced {synced_count} account(s)",
+            "accountsSynced": synced_count
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

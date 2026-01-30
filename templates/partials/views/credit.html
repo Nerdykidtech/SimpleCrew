@@ -265,16 +265,32 @@
                     + Add Another SimpleFin Card
                 </button>
 
-                <!-- Sync Schedule Info -->
-                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 8px; padding: 20px; margin-top: 30px;">
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <div style="font-size: 24px;">ℹ️</div>
-                        <div style="flex: 1;">
-                            <div style="font-weight: 600; margin-bottom: 8px; color: #1565c0;">Sync Schedule</div>
-                            <p style="color: #1565c0; line-height: 1.6; margin: 0; font-size: 14px;">
-                                SimpleFin accounts sync automatically every hour in the background. Each account syncs independently, so you can track multiple cards without delays.
-                            </p>
+                <!-- Sync Settings Panel -->
+                <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 12px; padding: 24px; margin-top: 30px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div>
+                            <h3 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">Sync Settings</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 0;">Configure when SimpleFin accounts sync automatically</p>
                         </div>
+                        <button id="sync-now-btn" onclick="syncNow()" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                            🔄 Sync Now
+                        </button>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center;">
+                        <label for="sync-schedule-select" style="font-weight: 500; color: var(--text-dark);">Sync Schedule:</label>
+                        <select id="sync-schedule-select" onchange="updateSyncSchedule()" style="padding: 10px 16px; border: 1px solid #dee2e6; border-radius: 8px; font-size: 14px; cursor: pointer; background: white;">
+                            <option value="morning">Morning only (6:00 AM)</option>
+                            <option value="afternoon">Afternoon only (12:00 PM)</option>
+                            <option value="evening">Evening only (6:00 PM)</option>
+                            <option value="morning-evening" selected>Morning & Evening (6 AM, 6 PM)</option>
+                            <option value="three-times">Three times daily (6 AM, 12 PM, 6 PM)</option>
+                            <option value="business-hours">Business hours (9 AM, 12 PM, 3 PM, 5 PM)</option>
+                        </select>
+                    </div>
+
+                    <div id="sync-schedule-info" style="margin-top: 12px; padding: 12px; background: #e3f2fd; border-radius: 6px; font-size: 13px; color: #1565c0;">
+                        Next sync: Loading...
                     </div>
                 </div>
             </div>

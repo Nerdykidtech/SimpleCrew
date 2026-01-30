@@ -293,6 +293,9 @@ function loadCreditAccounts(status) {
             // Update last sync timestamp
             updateLastSyncDisplay(data.lastSync);
         });
+
+    // Load sync schedule settings
+    loadSyncScheduleSettings();
 }
 
 /**
@@ -1030,4 +1033,238 @@ function viewAccountTransactions(accountId) {
             reloadTx();
         }
     }
+}
+
+/**
+ * Get schedule presets - maps preset keys to local times
+ */
+function getSchedulePresets() {
+    return {
+        'morning': ['06:00'],
+        'afternoon': ['12:00'],
+        'evening': ['18:00'],
+        'morning-evening': ['06:00', '18:00'],
+        'three-times': ['06:00', '12:00', '18:00'],
+        'business-hours': ['09:00', '12:00', '15:00', '17:00']
+    };
+}
+
+/**
+ * Convert local times to UTC times
+ */
+function localTimesToUTC(localTimes) {
+    const now = new Date();
+    const utcTimes = [];
+
+    for (const localTime of localTimes) {
+        const [hours, minutes] = localTime.split(':').map(Number);
+
+        // Create date with local time
+        const localDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+
+        // Get UTC hours and minutes
+        const utcHours = localDate.getUTCHours().toString().padStart(2, '0');
+        const utcMinutes = localDate.getUTCMinutes().toString().padStart(2, '0');
+
+        utcTimes.push(`${utcHours}:${utcMinutes}`);
+    }
+
+    return utcTimes;
+}
+
+/**
+ * Convert UTC times to local times
+ */
+function utcTimesToLocal(utcTimes) {
+    const now = new Date();
+    const localTimes = [];
+
+    for (const utcTime of utcTimes) {
+        const [hours, minutes] = utcTime.split(':').map(Number);
+
+        // Create UTC date
+        const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes, 0));
+
+        // Get local hours and minutes
+        const localHours = utcDate.getHours().toString().padStart(2, '0');
+        const localMinutes = utcDate.getMinutes().toString().padStart(2, '0');
+
+        localTimes.push(`${localHours}:${localMinutes}`);
+    }
+
+    return localTimes;
+}
+
+/**
+ * Detect which preset matches the given local times
+ */
+function detectPreset(localTimes) {
+    const presets = getSchedulePresets();
+
+    for (const [presetKey, presetTimes] of Object.entries(presets)) {
+        if (JSON.stringify(presetTimes.sort()) === JSON.stringify(localTimes.sort())) {
+            return presetKey;
+        }
+    }
+
+    return 'morning-evening'; // Default fallback
+}
+
+/**
+ * Load sync schedule settings and populate UI
+ */
+function loadSyncScheduleSettings() {
+    fetch('/api/simplefin/sync-schedule')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.syncTimes) {
+                // Convert UTC times back to local times
+                const localTimes = utcTimesToLocal(data.syncTimes);
+
+                // Detect which preset this matches
+                const preset = detectPreset(localTimes);
+
+                const selectEl = document.getElementById('sync-schedule-select');
+                if (selectEl) {
+                    selectEl.value = preset;
+                }
+
+                updateScheduleInfo(localTimes);
+            } else {
+                // Default to morning-evening
+                const selectEl = document.getElementById('sync-schedule-select');
+                if (selectEl) {
+                    selectEl.value = 'morning-evening';
+                }
+                updateScheduleInfo(['06:00', '18:00']);
+            }
+        })
+        .catch(err => {
+            console.error('Error loading sync schedule:', err);
+            updateScheduleInfo(['06:00', '18:00']);
+        });
+}
+
+/**
+ * Update sync schedule setting
+ */
+function updateSyncSchedule() {
+    const selectEl = document.getElementById('sync-schedule-select');
+    const preset = selectEl.value;
+
+    const presets = getSchedulePresets();
+    const localTimes = presets[preset];
+
+    // Convert to UTC
+    const utcTimes = localTimesToUTC(localTimes);
+
+    // Get user's timezone
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    fetch('/api/simplefin/sync-schedule', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            syncTimes: utcTimes,
+            syncTimezone: timezone
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            updateScheduleInfo(localTimes);
+            appAlert('✅ Sync schedule updated successfully!', 'Success');
+        } else {
+            appAlert('Error updating sync schedule: ' + data.error, 'Error');
+        }
+    })
+    .catch(err => {
+        appAlert('Error: ' + err.message, 'Error');
+    });
+}
+
+/**
+ * Update the schedule info display
+ */
+function updateScheduleInfo(localTimes) {
+    const infoEl = document.getElementById('sync-schedule-info');
+    if (!infoEl) return;
+
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    let nextSyncTime = null;
+    let minDiff = Infinity;
+
+    for (const timeStr of localTimes) {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const scheduledMinutes = hours * 60 + minutes;
+
+        let diff = scheduledMinutes - currentMinutes;
+        if (diff < 0) diff += 1440; // Add 24 hours if time has passed today
+
+        if (diff < minDiff) {
+            minDiff = diff;
+            nextSyncTime = timeStr;
+        }
+    }
+
+    if (nextSyncTime) {
+        const hours = Math.floor(minDiff / 60);
+        const minutes = minDiff % 60;
+
+        let timeUntil = '';
+        if (hours > 0) {
+            timeUntil = `${hours} hour${hours !== 1 ? 's' : ''}`;
+            if (minutes > 0) {
+                timeUntil += ` ${minutes} min`;
+            }
+        } else {
+            timeUntil = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+        }
+
+        // Convert to 12-hour format
+        const [h, m] = nextSyncTime.split(':').map(Number);
+        const period = h >= 12 ? 'PM' : 'AM';
+        const hour12 = h % 12 || 12;
+
+        infoEl.textContent = `Next sync: ${hour12}:${m.toString().padStart(2, '0')} ${period} (in ${timeUntil})`;
+    }
+}
+
+/**
+ * Manually trigger sync now
+ */
+function syncNow() {
+    const btn = document.getElementById('sync-now-btn');
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Syncing...';
+
+    fetch('/api/simplefin/sync-now', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appAlert(`✅ ${data.message}`, 'Success');
+            // Reload accounts after sync
+            setTimeout(() => {
+                if (typeof loadCreditAccountsData === 'function') {
+                    loadCreditAccountsData();
+                }
+            }, 1000);
+        } else {
+            appAlert('Error syncing: ' + data.error, 'Error');
+        }
+    })
+    .catch(err => {
+        appAlert('Error: ' + err.message, 'Error');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = '🔄 Sync Now';
+    });
 }
