@@ -6,6 +6,7 @@ docker-compose.yml
 
 # User data (database and files)
 data/
+*.db
 
 # Python
 __pycache__/
