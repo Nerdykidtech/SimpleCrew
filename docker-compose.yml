@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  finance-app:
+    image: ghcr.io/nerdykidtech/simplecrew:latest
+    container_name: simplecrew
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - BEARER_TOKEN=${BEARER_TOKEN}
+      - LUNCHFLOW_API_KEY=${LUNCHFLOW_API_KEY}
+    restart: unless-stopped
