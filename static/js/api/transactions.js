@@ -42,11 +42,12 @@ function reloadTx() {
             txs.forEach(tx => {
                 const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
                 const isCreditCard = tx.isCreditCard === true;
-                const creditCardBadge = isCreditCard ? '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; margin-right: 8px; text-transform: uppercase;">💳 Credit</span>' : '';
-                const pendingBadge = (isCreditCard && tx.isPending) ? '<span style="background: #ffc107; color: #333; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; margin-right: 8px;">Pending</span>' : '';
+                const creditCardBadge = ''; // Remove badge
+                const pendingBadge = (isCreditCard && tx.isPending) ? '<span style="background: #D93025; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-right: 8px;">Pending</span>' : '';
                 const rowClass = isCreditCard ? 'tx-row credit-card-tx' : 'tx-row';
-                const merchantInfo = isCreditCard && tx.merchant ? `<span class="tx-desc" style="color: #667eea; font-weight: 500;">${tx.merchant}</span>` : '';
-                html += `<div class="${rowClass}" onclick="openTxDetail('${tx.id}')"><div class="tx-left">${creditCardBadge}${pendingBadge}<span class="tx-title">${tx.title || 'Unknown'}</span>${merchantInfo}${tx.description && !isCreditCard ? `<span class="tx-desc">${tx.description}</span>` : ''}</div><div class="tx-amount ${amtClass}">${fmt(tx.amount)}</div></div>`;
+                const merchantInfo = isCreditCard && tx.merchant ? `<span class="tx-desc">${tx.merchant}</span>` : '';
+                const accountInfo = isCreditCard && tx.accountName ? `<span class="tx-desc" style="color: var(--simple-blue); font-weight: 500;">${tx.accountName}</span>` : '';
+                html += `<div class="${rowClass}" onclick="openTxDetail('${tx.id}')"><div class="tx-left">${creditCardBadge}${pendingBadge}<span class="tx-title">${tx.title || 'Unknown'}</span>${accountInfo}${merchantInfo}${tx.description && !isCreditCard ? `<span class="tx-desc">${tx.description}</span>` : ''}</div><div class="tx-amount ${amtClass}">${fmt(tx.amount)}</div></div>`;
             });
         }
         content.innerHTML = html;

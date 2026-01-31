@@ -66,33 +66,34 @@ function renderAccountCards(accounts) {
                 const pocketName = pocket ? pocket.name : 'Credit Card';
 
                 const cardHtml = `
-                    <div class="credit-account-card" data-account-id="${account.accountId}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; color: white; position: relative; overflow: hidden;">
-                        <div style="position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                        <div style="position: absolute; bottom: -30px; left: -30px; width: 150px; height: 150px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                        <div style="position: relative; z-index: 1;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                                <div style="flex: 1;">
-                                    <div style="font-size: 14px; opacity: 0.9;">💳 ${pocketName}</div>
-                                    <div style="font-size: 24px; font-weight: 700; margin-top: 8px;">${account.accountName}</div>
-                                    <div style="font-size: 12px; opacity: 0.8; font-family: monospace; margin-top: 4px;">${account.accountId}</div>
+                    <div class="credit-account-card sidebar-card" data-account-id="${account.accountId}">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <span style="font-size: 18px; color: var(--simple-blue);">💳</span>
+                                    <div style="font-weight: 600; color: var(--text-dark); font-size: 16px;">${account.accountName}</div>
                                 </div>
-                                <div style="text-align: right;">
-                                    <div style="font-size: 14px; opacity: 0.9;">Balance</div>
-                                    <div style="font-size: 28px; font-weight: 700;">${balance}</div>
+                                <div style="font-size: 12px; color: var(--text-muted); font-family: monospace; background: var(--bg-elevated); padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                                    ${account.accountId}
                                 </div>
                             </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 12px; color: var(--text-light); margin-bottom: 4px;">Pocket Balance</div>
+                                <div style="font-size: 20px; font-weight: 700; color: var(--text-dark);">${balance}</div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${pocketName}</div>
+                            </div>
+                        </div>
 
-                            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="syncAccountBalance('${account.accountId}')" style="flex: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-                                    🔄 Sync
-                                </button>
-                                <button onclick="viewAccountTransactions('${account.accountId}')" style="flex: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-                                    📋 Transactions
-                                </button>
-                                <button onclick="removeAccount('${account.accountId}')" style="background: rgba(220,53,69,0.3); border: 1px solid rgba(220,53,69,0.5); color: white; padding: 12px 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(220,53,69,0.5)'" onmouseout="this.style.background='rgba(220,53,69,0.3)'">
-                                    🗑️
-                                </button>
-                            </div>
+                        <div style="display: flex; gap: 8px; margin-top: 16px;">
+                            <button onclick="syncAccountBalance('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
+                                🔄 Sync
+                            </button>
+                            <button onclick="viewAccountTransactions('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
+                                📋 Transactions
+                            </button>
+                            <button onclick="removeAccount('${account.accountId}')" class="btn btn-outline" style="background: var(--alert-red); color: white; border-color: var(--alert-red); padding: 8px 12px;" title="Remove account">
+                                🗑️
+                            </button>
                         </div>
                     </div>
                 `;
@@ -155,7 +156,7 @@ function renderGoalItem(g, index) {
         detailsText = `<span>${fmt(g.balance)} ${amountLabel}</span>`;
     }
 
-    const creditCardIcon = isCreditCard ? '<span style="font-size: 18px; margin-right: 8px; vertical-align: middle;">💳</span>' : '';
+    const creditCardIcon = isCreditCard ? '<span style="font-size: 16px; margin-right: 8px; vertical-align: middle;">💳</span>' : '';
 
     // ADDED: draggable="true", ondragstart, data-pocket-id, touch events
     return `<div class="exp-item draggable-item ${isCreditCard ? 'credit-card-pocket' : ''}"
@@ -169,7 +170,7 @@ function renderGoalItem(g, index) {
                 onclick="openGoalDetailList(${index})">
                 <div class="exp-header-line">
                     <div class="exp-name">${creditCardIcon}${g.name}</div>
-                    <span class="exp-funding-status ready">${isCreditCard ? 'Credit Card' : 'Active'}</span>
+                    <span class="exp-funding-status ${isCreditCard ? 'credit-card-status' : 'ready'}">${isCreditCard ? '💳 Credit' : 'Active'}</span>
                 </div>
                 ${progressHtml}
                 <div class="exp-details">${detailsText}</div>

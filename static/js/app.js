@@ -4,6 +4,55 @@
  * @requires All other modules (state.js, ui/, api/, features/, utils/)
  */
 
+// --- DARK MODE FUNCTIONALITY ---
+function initDarkMode() {
+    const savedTheme = localStorage.getItem('theme');
+    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    // Set initial theme
+    if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        updateDarkModeToggle(savedTheme === 'dark');
+    } else if (systemPrefersDark) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        updateDarkModeToggle(true);
+    }
+    
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (!localStorage.getItem('theme')) {
+            const newTheme = e.matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            updateDarkModeToggle(e.matches);
+        }
+    });
+}
+
+function toggleDarkMode() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateDarkModeToggle(newTheme === 'dark');
+    updateThemeColor(newTheme);
+}
+
+function updateDarkModeToggle(isDark) {
+    const toggle = document.getElementById('dark-mode-toggle');
+    if (toggle) {
+        toggle.textContent = isDark ? '☀️' : '🌙';
+        toggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    }
+}
+
+function updateThemeColor(theme) {
+    const metaThemeColor = document.getElementById('theme-color-meta');
+    if (metaThemeColor) {
+        metaThemeColor.content = theme === 'dark' ? '#121212' : '#FDFDFD';
+    }
+}
+
 // --- PWA SERVICE WORKER REGISTRATION ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -57,6 +106,9 @@ document.addEventListener('click', function(e) {
 // --- INITIALIZE ON PAGE LOAD ---
 document.addEventListener('DOMContentLoaded', () => {
     console.log('SimpleCrew initializing...');
+
+    // Initialize dark mode first
+    initDarkMode();
 
     // Set up search input event listener
     const searchInput = document.getElementById('search-input-box');

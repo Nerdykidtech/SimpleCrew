@@ -5,16 +5,97 @@
 
 :root {
     --bg-body: #FDFDFD;
+    --bg-card: #FFFFFF;
+    --bg-elevated: #FAFAFA;
+    --bg-input: #FFFFFF;
     --border-color: #E8E8E8;
+    --border-color-light: #F0F0F0;
     --text-dark: #2C2C2C;
     --text-light: #767676;
+    --text-muted: #999999;
     --simple-blue: #0093E9;
     --alert-red: #D93025;
     --link-blue: #0085C3;
+    --success-green: #63BB67;
     --exp-track: #F0F0F0;
     --exp-fill: #34495E;
     --nav-height: 60px;
     --bottom-nav-height: 0px; /* 0 on desktop */
+    --scrollbar-track: #F0F0F0;
+    --scrollbar-thumb: #C1C1C1;
+    --shadow-color: rgba(0, 0, 0, 0.02);
+    --shadow-strong: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode - follows system preference */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-body: #121212;
+        --bg-card: #1E1E1E;
+        --bg-elevated: #252525;
+        --bg-input: #2A2A2A;
+        --border-color: #333333;
+        --border-color-light: #2A2A2A;
+        --text-dark: #E8E8E8;
+        --text-light: #A0A0A0;
+        --text-muted: #888888;
+        --simple-blue: #4DA8E8;
+        --alert-red: #EF5350;
+        --link-blue: #5DADE2;
+        --success-green: #81C784;
+        --exp-track: #333333;
+        --exp-fill: #5DADE2;
+        --scrollbar-track: #252525;
+        --scrollbar-thumb: #444444;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+        --shadow-strong: rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* Manual dark mode override */
+html[data-theme="dark"] {
+    --bg-body: #121212;
+    --bg-card: #1E1E1E;
+    --bg-elevated: #252525;
+    --bg-input: #2A2A2A;
+    --border-color: #333333;
+    --border-color-light: #2A2A2A;
+    --text-dark: #E8E8E8;
+    --text-light: #A0A0A0;
+    --text-muted: #888888;
+    --simple-blue: #4DA8E8;
+    --alert-red: #EF5350;
+    --link-blue: #5DADE2;
+    --success-green: #81C784;
+    --exp-track: #333333;
+    --exp-fill: #5DADE2;
+    --scrollbar-track: #252525;
+    --scrollbar-thumb: #444444;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --shadow-strong: rgba(0, 0, 0, 0.5);
+}
+
+/* Manual light mode override */
+html[data-theme="light"] {
+    --bg-body: #FDFDFD;
+    --bg-card: #FFFFFF;
+    --bg-elevated: #FAFAFA;
+    --bg-input: #FFFFFF;
+    --border-color: #E8E8E8;
+    --border-color-light: #F0F0F0;
+    --text-dark: #2C2C2C;
+    --text-light: #767676;
+    --text-muted: #999999;
+    --simple-blue: #0093E9;
+    --alert-red: #D93025;
+    --link-blue: #0085C3;
+    --success-green: #63BB67;
+    --exp-track: #F0F0F0;
+    --exp-fill: #34495E;
+    --scrollbar-track: #F0F0F0;
+    --scrollbar-thumb: #C1C1C1;
+    --shadow-color: rgba(0, 0, 0, 0.02);
+    --shadow-strong: rgba(0, 0, 0, 0.1);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -61,15 +142,15 @@ body {
 .view-toggles span.active { color: var(--text-dark); font-weight: 700; }
 
 .data-container {
-    background: #FFF; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 4px 4px;
+    background: var(--bg-card); border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 4px 4px;
     flex: 1;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: #CCC #F0F0F0;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 .data-container::-webkit-scrollbar { width: 8px; }
-.data-container::-webkit-scrollbar-track { background: #FAFAFA; border-left: 1px solid #EEE; }
-.data-container::-webkit-scrollbar-thumb { background-color: #C1C1C1; border-radius: 4px; border: 2px solid #FAFAFA; }
+.data-container::-webkit-scrollbar-track { background: var(--bg-elevated); border-left: 1px solid var(--border-color); }
+.data-container::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 4px; border: 2px solid var(--bg-elevated); }
 
 .sidebar-column { display: flex; flex-direction: column; overflow: hidden; }
-.sidebar-card { background: #FFF; border: 1px solid var(--border-color); border-radius: 4px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+.sidebar-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 4px; padding: 20px; margin-bottom: 20px; flex-shrink: 0; box-shadow: 0 1px 3px var(--shadow-color); }

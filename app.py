@@ -185,7 +185,6 @@ def init_db():
         account_name TEXT,
         pocket_id TEXT,
         provider TEXT DEFAULT 'lunchflow',
-        simplefin_access_url TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
 
@@ -210,13 +209,6 @@ def init_db():
         print("Migrating DB: Adding current_balance column to credit_card_config...")
         c.execute("ALTER TABLE credit_card_config ADD COLUMN current_balance REAL DEFAULT 0")
         conn.commit()
-
-    # Migration: Add simplefin_access_url column if it doesn't exist (temporary, will be removed)
-    try:
-        c.execute("SELECT simplefin_access_url FROM credit_card_config LIMIT 1")
-    except sqlite3.OperationalError:
-        print("Migrating DB: Adding simplefin_access_url column to credit_card_config...")
-        c.execute("ALTER TABLE credit_card_config ADD COLUMN simplefin_access_url TEXT")
 
     # Migration: Move simplefin_access_url to new simplefin_config table
     # First check if credit_card_config has the old column with data
@@ -245,36 +237,6 @@ def init_db():
             print("✅ Migrated SimpleFin access URL successfully", flush=True)
         else:
             print("⚠️ SimpleFin config already exists, skipping migration", flush=True)
-
-    # Migration: Remove simplefin_access_url column from credit_card_config (recreate table)
-    try:
-        c.execute("SELECT simplefin_access_url FROM credit_card_config LIMIT 1")
-        # Column exists, need to remove it by recreating table
-        print("🔄 Removing simplefin_access_url column from credit_card_config...")
-
-        # Create new table without simplefin_access_url but with current_balance
-        c.execute('''CREATE TABLE IF NOT EXISTS credit_card_config_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            account_id TEXT UNIQUE NOT NULL,
-            account_name TEXT,
-            pocket_id TEXT,
-            provider TEXT DEFAULT 'lunchflow',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            current_balance REAL DEFAULT 0
-        )''')
-
-        # Copy data
-        c.execute('''INSERT INTO credit_card_config_new (id, account_id, account_name, pocket_id, provider, created_at, current_balance)
-                     SELECT id, account_id, account_name, pocket_id, provider, created_at, 0 FROM credit_card_config''')
-
-        # Drop old table and rename new one
-        c.execute("DROP TABLE credit_card_config")
-        c.execute("ALTER TABLE credit_card_config_new RENAME TO credit_card_config")
-
-        print("✅ Removed simplefin_access_url column successfully")
-    except sqlite3.OperationalError:
-        # Column doesn't exist, table is already in new format
-        pass
 
     # Migration: Add is_valid column to simplefin_config if it doesn't exist
     try:
@@ -1645,9 +1607,10 @@ def api_transactions():
     try:
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        c.execute("""SELECT transaction_id, amount, date, merchant, description, is_pending, created_at
-                     FROM credit_card_transactions
-                     ORDER BY date DESC, created_at DESC""")
+        c.execute("""SELECT ct.transaction_id, ct.amount, ct.date, ct.merchant, ct.description, ct.is_pending, ct.created_at, ccc.account_name
+                     FROM credit_card_transactions ct
+                     LEFT JOIN credit_card_config ccc ON ct.account_id = ccc.account_id
+                     ORDER BY ct.date DESC, ct.created_at DESC""")
         rows = c.fetchall()
         conn.close()
 
@@ -1679,7 +1642,8 @@ def api_transactions():
                 "subaccountId": None,
                 "isCreditCard": True,
                 "merchant": row[3],
-                "isPending": bool(row[5])
+                "isPending": bool(row[5]),
+                "accountName": row[7] or "Credit Card"  # Add account name
             })
 
         # Merge and sort by date

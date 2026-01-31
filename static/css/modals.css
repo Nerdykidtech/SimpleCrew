@@ -5,8 +5,8 @@
 
         /* MODAL */
         /* UPDATE: Z-INDEX Increased to 2100 to beat Bottom Nav (1000) */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(3px); display: none; justify-content: center; align-items: center; z-index: 2100; }
-        .modal-content { background: #FFF; width: 450px; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); border: none; overflow: hidden; animation: popIn 0.2s ease-out; max-width: 90vw; display: flex; flex-direction: column; max-height: 80vh;}
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(3px); display: none; justify-content: center; align-items: center; z-index: 2100; }
+        .modal-content { background: var(--bg-card); width: 450px; border-radius: 8px; box-shadow: 0 20px 50px var(--shadow-strong); border: none; overflow: hidden; animation: popIn 0.2s ease-out; max-width: 90vw; display: flex; flex-direction: column; max-height: 80vh;}
 
         /* Custom Dialog Styles */
         .app-dialog-overlay {
@@ -27,12 +27,12 @@
             display: flex;
         }
         .app-dialog {
-            background: white;
+            background: var(--bg-card);
             border-radius: 16px;
             padding: 0;
             max-width: 500px;
             width: 90%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px var(--shadow-strong);
             animation: popIn 0.2s ease-out;
             overflow: hidden;
         }
@@ -79,7 +79,7 @@
             background: #0080d0;
         }
         .app-dialog-button-secondary {
-            background: white;
+            background: var(--bg-card);
             color: var(--text-dark);
             border: 2px solid var(--border-color);
         }
@@ -114,7 +114,7 @@
             100% { transform: rotate(360deg); }
         }
 
-        .modal-header { padding: 15px 20px; background: #F8F9FB; border-bottom: 1px solid #EEE; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
+        .modal-header { padding: 15px 20px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
 
         /* UPDATE: Added Scroll Properties for Mobile Forms */
         .modal-body {
@@ -125,14 +125,14 @@
             flex: 1;
         }
 
-        .detail-amount { font-size: 36px; font-weight: 700; margin-bottom: 5px; color: #333; letter-spacing: -1px; }
-        .detail-title { font-size: 18px; font-weight: 500; color: #555; margin-bottom: 25px; }
-        .detail-row { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 14px; border-bottom: 1px solid #FAFAFA; padding-bottom: 10px; }
+        .detail-amount { font-size: 36px; font-weight: 700; margin-bottom: 5px; color: var(--text-dark); letter-spacing: -1px; }
+        .detail-title { font-size: 18px; font-weight: 500; color: var(--text-light); margin-bottom: 25px; }
+        .detail-row { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 14px; border-bottom: 1px solid var(--border-color-light); padding-bottom: 10px; }
         .detail-row:last-child { border-bottom: none; }
-        .detail-label { color: #999; font-weight: 500; }
-        .detail-val { color: #333; font-weight: 600; }
-        .close-btn { cursor: pointer; font-size: 24px; color: #999; line-height: 1; }
-        .close-btn:hover { color: #333; }
+        .detail-label { color: var(--text-muted); font-weight: 500; }
+        .detail-val { color: var(--text-dark); font-weight: 600; }
+        .close-btn { cursor: pointer; font-size: 24px; color: var(--text-muted); line-height: 1; }
+        .close-btn:hover { color: var(--text-dark); }
 
         /* Updated Button Styles for Modal Footer */
         .btn-goal-add {
@@ -151,9 +151,9 @@
 
         /* NEW DELETE BUTTON STYLE */
         .btn-goal-delete {
-            background: #FFF;
+            background: var(--bg-card);
             color: var(--alert-red);
-            border: 1px solid #E0E0E0; /* Slightly clearer border */
+            border: 1px solid var(--border-color); /* Slightly clearer border */
             width: 100%;
             padding: 14px;
             border-radius: 6px;
@@ -164,12 +164,12 @@
             transition: all 0.2s;
         }
         .btn-goal-delete:hover {
-            background: #FFF5F5;
+            background: rgba(217, 48, 37, 0.1);
             border-color: var(--alert-red);
         }
 
         .btn-primary { background: var(--simple-blue); color: #FFF; width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
-        .btn-secondary { background: #FFF; color: #555; border: 1px solid #DDD; width: 100%; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; margin-top: 10px; }
+        .btn-secondary { background: var(--bg-card); color: var(--text-light); border: 1px solid var(--border-color); width: 100%; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; margin-top: 10px; }
 
 
         /* --- CUSTOM SUGGESTION DROPDOWN STYLES --- */
@@ -178,26 +178,26 @@
             top: 100%;
             left: 0;
             right: 0;
-            background: #FFF;
-            border: 1px solid #DDD;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
             border-top: none;
             border-radius: 0 0 4px 4px;
             max-height: 200px;
             overflow-y: auto;
             z-index: 1000; /* High Z-index */
             display: none; /* Hidden by default */
-            box-shadow: 0 4px 10px rgba(0,0,0,0.15); /* Stronger shadow */
+            box-shadow: 0 4px 10px var(--shadow-strong); /* Stronger shadow */
         }
         .suggestion-item {
             padding: 12px 10px; /* Larger tap area for mobile */
             cursor: pointer;
-            border-bottom: 1px solid #F0F0F0;
+            border-bottom: 1px solid var(--border-color-light);
             font-size: 14px;
-            color: #333;
-            background: #FFF;
+            color: var(--text-dark);
+            background: var(--bg-card);
         }
         .suggestion-item:hover {
-            background: #F9F9F9;
+            background: var(--bg-elevated);
             color: var(--simple-blue);
         }
         .suggestion-item:last-child {
@@ -206,49 +206,49 @@
 
         .form-group { margin-bottom: 15px; }
         .form-row-2 { display: flex; gap: 15px; }
-        .form-label { display: block; font-size: 12px; font-weight: 600; color: #777; margin-bottom: 5px; }
-        .form-select, .form-input { width: 100%; padding: 10px; border: 1px solid #DDD; border-radius: 4px; font-size: 14px; background: #FFF; }
+        .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-light); margin-bottom: 5px; }
+        .form-select, .form-input { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); }
         .form-select:focus, .form-input:focus { border-color: var(--simple-blue); outline: none; }
 
         /* CHECKBOX & SUBTEXT */
         .checkbox-wrapper { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-        .checkbox-input { width: 18px; height: 18px; cursor: pointer; }
-        .checkbox-label { font-size: 14px; color: #2C2C2C; font-weight: 600; }
-        .form-subtext { font-size: 12px; color: #999; margin-top: 5px; line-height: 1.4; padding-left: 2px; }
+        .checkbox-input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--simple-blue); }
+        .checkbox-label { font-size: 14px; color: var(--text-dark); font-weight: 600; }
+        .form-subtext { font-size: 12px; color: var(--text-muted); margin-top: 5px; line-height: 1.4; padding-left: 2px; }
 
         /* TABLE STYLES FOR GOAL HISTORY */
         .history-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
-        .history-table th { text-align: left; color: #999; font-weight: 600; padding-bottom: 10px; border-bottom: 1px solid #EEE; }
-        .history-table td { padding: 10px 0; border-bottom: 1px solid #FAFAFA; color: #333; }
-        .history-table .bal-col { color: #777; text-align: right; }
+        .history-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); }
+        .history-table td { padding: 10px 0; border-bottom: 1px solid var(--border-color-light); color: var(--text-dark); }
+        .history-table .bal-col { color: var(--text-light); text-align: right; }
         .history-table .amt-col { text-align: right; font-weight: 600; }
 
         #modal-body-content { max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
 
         /* --- POCKET DETAIL SCROLL AREA --- */
         .pocket-header { text-align: center; margin-bottom: 20px; }
-        .pocket-balance { font-size: 42px; font-weight: 700; color: #2C2C2C; margin-bottom: 5px; letter-spacing: -1px; }
-        .pocket-sub { font-size: 14px; color: #999; margin-bottom: 25px; font-weight: 500; }
+        .pocket-balance { font-size: 42px; font-weight: 700; color: var(--text-dark); margin-bottom: 5px; letter-spacing: -1px; }
+        .pocket-sub { font-size: 14px; color: var(--text-muted); margin-bottom: 25px; font-weight: 500; }
         .pocket-tx-scroll {
             max-height: 350px;
             overflow-y: auto;
-            border-top: 1px solid #EEE;
+            border-top: 1px solid var(--border-color);
             margin: 0 -30px; /* Bleed to edge */
             padding: 0 30px;
             scrollbar-width: thin;
         }
         .pocket-tx-scroll::-webkit-scrollbar { width: 6px; }
-        .pocket-tx-scroll::-webkit-scrollbar-thumb { background-color: #DDD; border-radius: 3px; }
+        .pocket-tx-scroll::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 3px; }
 
         .pocket-tx-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 15px 0;
-            border-bottom: 1px solid #FAFAFA;
+            border-bottom: 1px solid var(--border-color-light);
             font-size: 14px;
         }
         .pocket-tx-row:last-child { border-bottom: none; }
-        .pocket-tx-date { color: #999; font-size: 12px; width: 80px; }
-        .pocket-tx-title { font-weight: 600; color: #333; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px; }
+        .pocket-tx-date { color: var(--text-muted); font-size: 12px; width: 80px; }
+        .pocket-tx-title { font-weight: 600; color: var(--text-dark); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px; }
         .pocket-tx-amt { font-weight: 600; text-align: right; }
