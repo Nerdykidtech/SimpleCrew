@@ -217,14 +217,14 @@ function saveBill() {
                 modalBody.innerHTML = `
                     <div style="text-align:center; padding: 20px 0;">
                         <div style="font-size: 40px; margin-bottom: 10px;">🎉</div>
-                        <div style="font-size: 18px; font-weight: 700; color: #2C2C2C; margin-bottom: 15px;">Bill Created Successfully</div>
+                        <div style="font-size: 18px; font-weight: 700; color: var(--text-dark); margin-bottom: 15px;">Bill Created Successfully</div>
 
-                        <div style="background: #F8F9FB; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: left; border: 1px solid #EEE;">
-                            <div style="font-size: 14px; line-height: 1.5; color: #555;">
+                        <div style="background: var(--bg-elevated); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: left; border: 1px solid var(--border-color);">
+                            <div style="font-size: 14px; line-height: 1.5; color: var(--text-light);">
                                 To ensure <strong>${name}</strong> is fully caught up and aligned with your funding schedule,
-                                <span style="color: #2C2C2C; font-weight: 700;">${fmt(reservedAmt)}</span>
+                                <span style="color: var(--text-dark); font-weight: 700;">${fmt(reservedAmt)}</span>
                                 has been automatically reserved from your
-                                <span style="color: #2C2C2C; font-weight: 700;">${accountName}</span> account.
+                                <span style="color: var(--text-dark); font-weight: 700;">${accountName}</span> account.
                             </div>
                         </div>
 

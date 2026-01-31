@@ -371,7 +371,7 @@ function loadLunchFlowAccounts() {
 
 
             if (data.error) {
-                accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+                accountsList.innerHTML = `<div style="background: var(--alert-red); color: white; border-radius: 8px; padding: 20px;">
                     <strong>Error loading accounts:</strong> ${data.error}
                 </div>`;
                 return;
@@ -400,12 +400,12 @@ function loadLunchFlowAccounts() {
                 const statusColor = status === 'ACTIVE' ? '#28a745' : status === 'ERROR' ? '#dc3545' : '#6c757d';
 
                 html += `
-                    <div style="background: white; border: 2px solid ${status === 'ACTIVE' ? '#e0e0e0' : '#f0f0f0'}; border-radius: 8px; padding: 20px; cursor: ${status === 'ACTIVE' ? 'pointer' : 'not-allowed'}; transition: all 0.2s; opacity: ${status === 'ACTIVE' ? '1' : '0.7'};"
+                    <div style="background: var(--bg-card); border: 2px solid ${status === 'ACTIVE' ? 'var(--border-color)' : 'var(--border-color-light)'}; border-radius: 8px; padding: 20px; cursor: ${status === 'ACTIVE' ? 'pointer' : 'not-allowed'}; transition: all 0.2s; opacity: ${status === 'ACTIVE' ? '1' : '0.7'};"
                          ${status === 'ACTIVE' ? `onclick="selectCreditCardAccount(${accountId}, '${accountName.replace(/'/g, "\\'")}')"` : ''}
-                         ${status === 'ACTIVE' ? 'onmouseover="this.style.borderColor=\'var(--simple-blue)\'; this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.1)\'"' : ''}
-                         ${status === 'ACTIVE' ? 'onmouseout="this.style.borderColor=\'#e0e0e0\'; this.style.boxShadow=\'none\'"' : ''}>
+                         ${status === 'ACTIVE' ? 'onmouseover="this.style.borderColor=\'var(--simple-blue)\'; this.style.boxShadow=\'0 2px 8px var(--shadow-strong)\'"' : ''}
+                         ${status === 'ACTIVE' ? 'onmouseout="this.style.borderColor=\'var(--border-color)\'; this.style.boxShadow=\'none\'"' : ''}>
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-                            ${logo ? `<img src="${logo}" alt="${institutionName}" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; background: #f8f9fa; padding: 4px;">` : '<div style="width: 40px; height: 40px; background: #e9ecef; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>'}
+                            ${logo ? `<img src="${logo}" alt="${institutionName}" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; background: var(--bg-elevated); padding: 4px;">` : '<div style="width: 40px; height: 40px; background: var(--bg-elevated); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>'}
                             <div style="flex: 1;">
                                 <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${accountName}</div>
                                 <div style="font-size: 13px; color: var(--text-light); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -415,7 +415,7 @@ function loadLunchFlowAccounts() {
                                     <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;">${status}</span>
                                 </div>
                             </div>
-                            ${status === 'ACTIVE' ? '<div style="font-size: 24px; color: var(--simple-blue);">→</div>' : '<div style="font-size: 14px; color: #999;">Not available</div>'}
+                            ${status === 'ACTIVE' ? '<div style="font-size: 24px; color: var(--simple-blue);">→</div>' : '<div style="font-size: 14px; color: var(--text-muted);">Not available</div>'}
                         </div>
                     </div>
                 `;
@@ -427,7 +427,7 @@ function loadLunchFlowAccounts() {
         .catch(err => {
             const accountsList = document.getElementById('accounts-list');
             if (accountsList) {
-                accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+                accountsList.innerHTML = `<div style="background: var(--alert-red); color: white; border-radius: 8px; padding: 20px;">
                     <strong>Error:</strong> ${err.message}
                 </div>`;
             }
@@ -549,7 +549,7 @@ function loadSimpleFinAccounts() {
     // Ensure we have the access URL
     if (!simpleFinAccessUrl) {
         console.error('simpleFinAccessUrl is not set!');
-        accountsList.innerHTML = '<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;"><strong>Error:</strong> SimpleFin access URL not found. Please reconnect SimpleFin.</div>';
+        accountsList.innerHTML = '<div style="background: var(--alert-red); color: white; border-radius: 8px; padding: 20px;"><strong>Error:</strong> SimpleFin access URL not found. Please reconnect SimpleFin.</div>';
         return;
     }
 
@@ -566,7 +566,7 @@ function loadSimpleFinAccounts() {
     .then(data => {
         console.log('Accounts API response data:', data);
         if (data.error) {
-            accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+            accountsList.innerHTML = `<div style="background: var(--alert-red); color: white; border-radius: 8px; padding: 20px;">
                 <strong>Error loading accounts:</strong> ${data.error}
             </div>`;
             return;
@@ -574,7 +574,7 @@ function loadSimpleFinAccounts() {
 
         const accounts = data.accounts || [];
         if (accounts.length === 0) {
-            accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No accounts found.</div>';
+            accountsList.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">No accounts found.</div>';
             return;
         }
 
@@ -588,12 +588,12 @@ function loadSimpleFinAccounts() {
             const balance = account.balance || 0;
 
             html += `
-                <div style="background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s;"
+                <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s;"
                      onclick="selectSimpleFinAccount('${accountId}', '${accountName.replace(/'/g, "\\'")}')"
-                     onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
-                     onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none'">
+                     onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 2px 8px var(--shadow-strong)'"
+                     onmouseout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none'">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-                        <div style="width: 40px; height: 40px; background: #e9ecef; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>
+                        <div style="width: 40px; height: 40px; background: var(--bg-elevated); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>
                         <div style="flex: 1;">
                             <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${accountName}</div>
                             <div style="font-size: 13px; color: var(--text-light); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -615,7 +615,7 @@ function loadSimpleFinAccounts() {
         console.log('innerHTML set successfully');
     })
     .catch(err => {
-        accountsList.innerHTML = `<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 20px; color: #721c24;">
+        accountsList.innerHTML = `<div style="background: var(--alert-red); color: white; border-radius: 8px; padding: 20px;">
             <strong>Error:</strong> ${err.message}
         </div>`;
     });
@@ -768,11 +768,11 @@ function handleBalanceSync(syncBalance) {
     }
 
     // Show loading state in modal
-    const modalContent = modal.querySelector('div[style*="background: white"]');
+    const modalContent = modal.querySelector('div[style*="background: var(--bg-card)"]');
     const originalContent = modalContent.innerHTML;
     modalContent.innerHTML = `
         <div style="text-align: center; padding: 60px 40px;">
-            <div class="spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
+            <div class="spinner" style="border: 4px solid var(--bg-elevated); border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
             <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 12px; color: var(--text-dark);">Setting up your account...</h3>
             <p style="color: var(--text-light); line-height: 1.6;">
                 ${syncBalance ? 'Syncing balance and importing transactions. This may take a moment.' : 'Creating pocket and importing transactions. This may take a moment.'}
@@ -847,8 +847,8 @@ function syncAccountBalance(accountId) {
         const loadingModal = document.createElement('div');
         loadingModal.style = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
         loadingModal.innerHTML = `
-            <div style="background: white; border-radius: 16px; padding: 40px; text-align: center; max-width: 400px;">
-                <div class="spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
+            <div style="background: var(--bg-card); border-radius: 16px; padding: 40px; text-align: center; max-width: 400px;">
+                <div class="spinner" style="border: 4px solid var(--bg-elevated); border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
                 <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 12px; color: var(--text-dark);">Syncing Balance...</h3>
                 <p style="color: var(--text-light);">Fetching current balance from SimpleFin</p>
             </div>
@@ -1037,8 +1037,8 @@ function removeAccount(accountId) {
         const loadingModal = document.createElement('div');
         loadingModal.style = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
         loadingModal.innerHTML = `
-            <div style="background: white; border-radius: 16px; padding: 40px; text-align: center; max-width: 400px;">
-                <div class="spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
+            <div style="background: var(--bg-card); border-radius: 16px; padding: 40px; text-align: center; max-width: 400px;">
+                <div class="spinner" style="border: 4px solid var(--bg-elevated); border-top: 4px solid var(--simple-blue); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
                 <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 12px; color: var(--text-dark);">Removing Account...</h3>
                 <p style="color: var(--text-light);">Deleting pocket and returning funds</p>
             </div>
