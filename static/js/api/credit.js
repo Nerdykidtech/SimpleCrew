@@ -1317,9 +1317,7 @@ function syncNow() {
             appAlert(`✅ ${data.message}`, 'Success');
             // Reload accounts after sync
             setTimeout(() => {
-                if (typeof loadCreditAccountsData === 'function') {
-                    loadCreditAccountsData();
-                }
+                loadCreditSetup();
             }, 1000);
         } else {
             appAlert('Error syncing: ' + data.error, 'Error');

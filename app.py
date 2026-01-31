@@ -2334,6 +2334,49 @@ def check_credit_card_transactions():
             except Exception as e:
                 print(f"⚠️ Failed to parse last_sync from database: {e}", flush=True)
 
+        # Determine which SimpleFin accounts are due for sync
+        simplefin_to_sync = []
+        if simplefin_access_url:
+            for row in rows:
+                if row[2] == 'simplefin':
+                    should_sync, reason = should_sync_simplefin(row[0])
+                    if should_sync:
+                        simplefin_to_sync.append((row[0], row[1], reason))
+                    else:
+                        print(f"⏰ SimpleFin sync skipped for account {row[0]} ({reason})", flush=True)
+        else:
+            for row in rows:
+                if row[2] == 'simplefin':
+                    print(f"⚠️ SimpleFin access URL not found in simplefin_config", flush=True)
+                    break
+
+        # Batch fetch SimpleFin data for all due accounts in a single request
+        simplefin_data = None
+        if simplefin_to_sync:
+            from datetime import datetime, timezone
+            now_utc = datetime.now(timezone.utc)
+            start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
+            end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
+            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+            params = [
+                ('start-date', start_timestamp),
+                ('end-date', end_timestamp),
+                ('pending', 1),
+            ]
+            for acc_id, _, _ in simplefin_to_sync:
+                params.append(('account', acc_id))
+            print(f"📡 Batch fetching SimpleFin data for {len(simplefin_to_sync)} account(s) in one request", flush=True)
+            response = requests.get(f"{simplefin_access_url}/accounts", params=params, timeout=60)
+            if response.status_code == 200:
+                simplefin_data = response.json()
+                print(f"✅ SimpleFin batch fetch returned {len(simplefin_data.get('accounts', []))} accounts", flush=True)
+            else:
+                print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
+                if response.status_code == 403:
+                    print("🚫 SimpleFin token has been revoked or is invalid", flush=True)
+                    c.execute("UPDATE simplefin_config SET is_valid = 0")
+                    conn.commit()
+
         # Process each account
         for row in rows:
             account_id, pocket_id, provider = row
@@ -2348,28 +2391,23 @@ def check_credit_card_transactions():
                 check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key)
 
             elif provider == 'simplefin':
-                # Check if we should sync now based on schedule or interval
-                should_sync, reason = should_sync_simplefin(account_id)
+                sf_entry = next((a for a in simplefin_to_sync if a[0] == account_id), None)
+                if not sf_entry or simplefin_data is None:
+                    continue  # Not due for sync, or batch fetch failed
 
-                if not should_sync:
-                    print(f"⏰ SimpleFin sync skipped for account {account_id} ({reason})", flush=True)
-                    continue
-
-                if not simplefin_access_url:
-                    print(f"⚠️ SimpleFin access URL not found in simplefin_config", flush=True)
-                    continue
-
-                print(f"✅ Calling check_simplefin_transactions for account {account_id} ({reason})", flush=True)
-                check_simplefin_transactions(conn, c, account_id, pocket_id, simplefin_access_url)
+                _, _, reason = sf_entry
+                print(f"✅ Processing SimpleFin account {account_id} from batch data ({reason})", flush=True)
+                check_simplefin_transactions(conn, c, account_id, pocket_id, simplefin_access_url, prefetched_data=simplefin_data)
 
                 # Update per-account last sync time
                 _last_simplefin_sync[account_id] = time.time()
 
-                # Update global last sync timestamp in database
-                from datetime import datetime
-                last_sync_iso = datetime.utcnow().isoformat() + 'Z'
-                c.execute("UPDATE simplefin_config SET last_sync = ?", (last_sync_iso,))
-                conn.commit()
+        # Update global last sync timestamp if any SimpleFin accounts were synced
+        if simplefin_to_sync and simplefin_data is not None:
+            from datetime import datetime
+            last_sync_iso = datetime.utcnow().isoformat() + 'Z'
+            c.execute("UPDATE simplefin_config SET last_sync = ?", (last_sync_iso,))
+            conn.commit()
 
         conn.close()
     except Exception as e:
@@ -2473,41 +2511,49 @@ def check_lunchflow_transactions(conn, c, account_id, pocket_id, api_key):
     except Exception as e:
         print(f"Error checking LunchFlow transactions: {e}")
 
-def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_initial_sync=False):
+def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_initial_sync=False, prefetched_data=None):
     """Check SimpleFin for new transactions
 
     Args:
         is_initial_sync: If True, don't move money for transactions (just store them)
+        prefetched_data: Pre-fetched API response to avoid duplicate calls when syncing multiple accounts
     """
     try:
-        print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id} (initial={is_initial_sync})", flush=True)
+        if prefetched_data is not None:
+            data = prefetched_data
+            print(f"🔍 check_simplefin_transactions: Using prefetched data for account {account_id} (initial={is_initial_sync})", flush=True)
+        else:
+            print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id} (initial={is_initial_sync})", flush=True)
 
-        # Calculate date range: last 30 days to now
-        import time
-        end_timestamp = int(time.time())
-        start_timestamp = end_timestamp - (30 * 24 * 60 * 60)  # 30 days ago
+            # Calculate date range: current calendar month
+            from datetime import datetime, timezone
+            now_utc = datetime.now(timezone.utc)
+            start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
+            end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
+            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
 
-        # Fetch account data from SimpleFin with date range for transactions
-        # SimpleFin requires start-date and end-date to return transaction data
-        params = {
-            'start-date': start_timestamp,
-            'end-date': end_timestamp,
-            'pending': 1  # Include pending transactions
-        }
-        print(f"📅 Fetching transactions from {start_timestamp} to {end_timestamp}", flush=True)
-        response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
-        if response.status_code != 200:
-            print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
+            # Fetch account data from SimpleFin, filtered to just this account
+            params = {
+                'start-date': start_timestamp,
+                'end-date': end_timestamp,
+                'pending': 1,  # Include pending transactions
+                'account': account_id  # Filter to just this account
+            }
+            print(f"📅 Fetching transactions from {start_timestamp} to {end_timestamp}", flush=True)
+            response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
+            if response.status_code != 200:
+                print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
 
-            # If 403, mark token as invalid in database
-            if response.status_code == 403:
-                print("🚫 SimpleFin token has been revoked or is invalid", flush=True)
-                c.execute("UPDATE simplefin_config SET is_valid = 0")
-                conn.commit()
+                # If 403, mark token as invalid in database
+                if response.status_code == 403:
+                    print("🚫 SimpleFin token has been revoked or is invalid", flush=True)
+                    c.execute("UPDATE simplefin_config SET is_valid = 0")
+                    conn.commit()
 
-            return
+                return
 
-        data = response.json()
+            data = response.json()
+
         print(f"✅ SimpleFin API response received, found {len(data.get('accounts', []))} accounts")
 
         # Find the matching account and get transactions
@@ -2816,14 +2862,16 @@ def simplefin_claim_token(token):
     except Exception as e:
         return {"error": f"Failed to claim token: {str(e)}"}
 
-def simplefin_get_accounts(access_url):
+def simplefin_get_accounts(access_url, account_id=None):
     """Fetch accounts from SimpleFin using the access URL"""
     try:
-        # Parse the access URL to extract Basic Auth credentials
-        parsed = urlparse(access_url)
+        # balances-only avoids pulling transaction data we don't need here
+        # account filter limits the response to a single account when provided
+        params = {'balances-only': 1}
+        if account_id:
+            params['account'] = account_id
 
-        # Make request to /accounts endpoint
-        response = requests.get(f"{access_url}/accounts", timeout=30)
+        response = requests.get(f"{access_url}/accounts", params=params, timeout=30)
 
         if response.status_code != 200:
             # If 403, mark token as invalid
@@ -2970,8 +3018,8 @@ def api_simplefin_get_balance():
         return jsonify({"error": "accountId and accessUrl are required"}), 400
 
     try:
-        # Fetch all accounts and find the matching one
-        result = simplefin_get_accounts(access_url)
+        # Fetch only this account's balance
+        result = simplefin_get_accounts(access_url, account_id=account_id)
 
         if "error" in result:
             return jsonify(result), 400
@@ -3012,22 +3060,42 @@ def api_simplefin_create_pocket_with_balance():
         url_row = c.fetchone()
         access_url = url_row[0] if url_row else None
 
-        # Get current balance from SimpleFin (always fetch for progress bar, but only sync pocket if requested)
+        # Fetch balance and transactions from SimpleFin in a single request
+        # This data is reused below for both pocket creation (balance) and initial transaction sync
+        simplefin_data = None
         initial_amount = "0"
         current_balance_value = 0
         if access_url:
             try:
-                balance_result = simplefin_get_accounts(access_url)
-                if "accounts" in balance_result:
-                    for account in balance_result["accounts"]:
-                        if account["id"] == account_id:
-                            current_balance_value = abs(account["balance"])
-                            # Only set initial pocket amount if sync_balance is True
+                from datetime import datetime, timezone
+                now_utc = datetime.now(timezone.utc)
+                start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
+                end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
+                end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+
+                params = {
+                    'start-date': start_timestamp,
+                    'end-date': end_timestamp,
+                    'pending': 1,
+                    'account': account_id
+                }
+                response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
+                if response.status_code == 200:
+                    simplefin_data = response.json()
+                    for account in simplefin_data.get("accounts", []):
+                        if account.get("id") == account_id:
+                            balance_str = account.get("balance", "0")
+                            try:
+                                current_balance_value = abs(float(balance_str))
+                            except (ValueError, TypeError):
+                                current_balance_value = 0
                             if sync_balance:
                                 initial_amount = str(current_balance_value)
                             break
+                else:
+                    print(f"Warning: SimpleFin API error {response.status_code}: {response.text}", flush=True)
             except Exception as e:
-                print(f"Warning: Could not fetch balance: {e}")
+                print(f"Warning: Could not fetch SimpleFin data: {e}", flush=True)
 
         # Create the pocket
         pocket_name = f"Credit Card - {account_name}"
@@ -3047,24 +3115,17 @@ def api_simplefin_create_pocket_with_balance():
                  (pocket_id, current_balance_value, account_id))
         conn.commit()
 
-        # Always fetch transactions immediately with is_initial_sync=True to avoid money transfers
-        # Whether balance was synced or not, we don't want to move money for historical transactions:
-        # - If synced: pocket already has correct balance from creation
-        # - If not synced: pocket at $0, avoid huge transfer
-        # Future hourly syncs will move money for NEW transactions only
-        if access_url:
-            print(f"🔄 Immediately fetching transactions for newly added SimpleFin account {account_id} (balance synced: {sync_balance})", flush=True)
+        # Process initial transactions using the data already fetched above — no second API call
+        if simplefin_data:
+            print(f"🔄 Processing initial transactions for newly added SimpleFin account {account_id} (balance synced: {sync_balance})", flush=True)
             global _last_simplefin_sync
 
-            # Fetch transactions
             try:
-                # Always use is_initial_sync=True on first sync to skip moving money for historical transactions
-                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_initial_sync=True)
-                # Reset the timer for this specific account so hourly sync starts fresh
+                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_initial_sync=True, prefetched_data=simplefin_data)
                 _last_simplefin_sync[account_id] = time.time()
                 print(f"✅ Initial transaction sync complete for account {account_id}, hourly timer reset", flush=True)
             except Exception as e:
-                print(f"⚠️ Error fetching initial transactions: {e}", flush=True)
+                print(f"⚠️ Error processing initial transactions: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
 
@@ -3107,8 +3168,8 @@ def api_simplefin_sync_balance():
 
         access_url = url_row[0]
 
-        # Get balance from SimpleFin
-        balance_result = simplefin_get_accounts(access_url)
+        # Get balance from SimpleFin (filtered to this account only)
+        balance_result = simplefin_get_accounts(access_url, account_id=account_id)
         if "error" in balance_result:
             return jsonify(balance_result), 400
 
@@ -3471,17 +3532,49 @@ def api_simplefin_sync_now():
             conn.close()
             return jsonify({"error": "No SimpleFin accounts configured"}), 400
 
-        # Reset rate limiter for manual sync (allow immediate sync)
+        # Batch fetch all accounts in one SimpleFin request
         global _last_simplefin_sync
         synced_count = 0
 
+        from datetime import datetime, timezone
+        now_utc = datetime.now(timezone.utc)
+        start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
+        end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
+        end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+        params = [
+            ('start-date', start_timestamp),
+            ('end-date', end_timestamp),
+            ('pending', 1),
+        ]
+        for account_id, _ in accounts:
+            params.append(('account', account_id))
+
+        print(f"📡 Manual sync: batch fetching {len(accounts)} SimpleFin account(s) in one request", flush=True)
+        response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
+        if response.status_code != 200:
+            print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
+            if response.status_code == 403:
+                c.execute("UPDATE simplefin_config SET is_valid = 0")
+                conn.commit()
+            conn.close()
+            return jsonify({"error": f"SimpleFin API error: {response.status_code}"}), 400
+
+        simplefin_data = response.json()
+        print(f"✅ SimpleFin batch fetch returned {len(simplefin_data.get('accounts', []))} accounts", flush=True)
+
         for account_id, pocket_id in accounts:
             try:
-                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url)
+                check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, prefetched_data=simplefin_data)
                 _last_simplefin_sync[account_id] = time.time()
                 synced_count += 1
             except Exception as e:
                 print(f"Error syncing account {account_id}: {e}")
+
+        # Persist last sync timestamp so the frontend can display it
+        if synced_count > 0:
+            from datetime import datetime
+            c.execute("UPDATE simplefin_config SET last_sync = ?", (datetime.utcnow().isoformat() + 'Z',))
+            conn.commit()
 
         conn.close()
 

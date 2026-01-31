@@ -1,5 +1,6 @@
 # Claude Code directory
 .claude/
+CLAUDE.MD
 
 # User configuration
 docker-compose.yml
