@@ -48,7 +48,7 @@ function loadExpenses(forceRefresh = false) {
             const readyDate = e.reservedBy ? new Date(e.reservedBy).toLocaleDateString(undefined, {month:'short', day:'numeric'}) : 'Monthly';
             const estFunding = e.estimatedFunding > 0 ? `${fmt(e.estimatedFunding)} on Payday 💰` : 'Fully Funded';
             let statusBadge = e.paused ? `<span class="exp-funding-status">Paused</span>` : (e.reserved >= e.amount ? `<span class="exp-funding-status ready">Ready</span>` : '');
-            html += `<div class="exp-item" onclick="openExpenseDetail(${index})"><div class="exp-header-line"><div class="exp-name">${e.name}</div>${statusBadge}</div><div class="exp-progress-container"><div class="exp-progress-bar" style="width: ${pct}%"></div></div><div class="exp-details"><span>${fmt(e.reserved)} of ${fmt(e.amount)} reserved • Ready by ${readyDate}</span><span style="color:#2C2C2C">${estFunding}</span></div></div>`;
+            html += `<div class="exp-item" onclick="openExpenseDetail(${index})"><div class="exp-header-line"><div class="exp-name">${e.name}</div>${statusBadge}</div><div class="exp-progress-container"><div class="exp-progress-bar" style="width: ${pct}%"></div></div><div class="exp-details"><span>${fmt(e.reserved)} of ${fmt(e.amount)} reserved • Ready by ${readyDate}</span><span class="exp-funding-text">${estFunding}</span></div></div>`;
         });
         document.getElementById('expenses-list').innerHTML = html;
     });

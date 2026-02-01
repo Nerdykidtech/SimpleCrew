@@ -451,6 +451,7 @@
         .exp-progress-container { height: 10px; background: var(--exp-track); border-radius: 5px; width: 100%; overflow: hidden; margin-bottom: 10px; pointer-events: none; }
         .exp-progress-bar { height: 100%; background: var(--exp-fill); width: 0%; border-radius: 5px; transition: width 0.5s ease-out; }
         .exp-details { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-light); font-weight: 500; pointer-events: none; }
+        .exp-funding-text { color: var(--text-dark); }
 
         /* ADD BILL / POCKET ROW STYLES */
         .add-bill-row {
