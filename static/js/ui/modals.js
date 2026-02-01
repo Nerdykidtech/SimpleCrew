@@ -20,6 +20,10 @@ function openMoveModal(preFillToId = null) {
     document.getElementById('move-modal').style.display = 'flex';
     document.getElementById('move-message').innerHTML = '';
 
+    // Clear previous values
+    document.getElementById('move-amount').value = '';
+    document.getElementById('move-note').value = '';
+
     // ALWAYS REFRESH
     fetch('/api/subaccounts?refresh=true').then(res=>res.json()).then(data => {
         if(data.error) return;
