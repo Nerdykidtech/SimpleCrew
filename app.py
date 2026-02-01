@@ -1087,9 +1087,12 @@ def get_cards_data():
                     user_data = vcard.get("user", {})
                     config = user_data.get("userSpendConfig")
 
-                    # Determine current spend source
+                    # Determine current spend source - prioritize linked subaccount
                     spend_source_id = "Checking"
-                    if config and config.get("selectedSpendSubaccount"):
+                    linked_subaccount = vcard.get("subaccount")
+                    if linked_subaccount and linked_subaccount.get("id"):
+                        spend_source_id = linked_subaccount["id"]
+                    elif config and config.get("selectedSpendSubaccount"):
                         spend_source_id = config["selectedSpendSubaccount"]["id"]
 
                     # Calculate remaining limit if applicable
@@ -1124,8 +1127,12 @@ def get_cards_data():
                     user_data = vcard.get("user", {})
                     config = user_data.get("userSpendConfig")
 
+                    # Determine current spend source - prioritize linked subaccount
                     spend_source_id = "Checking"
-                    if config and config.get("selectedSpendSubaccount"):
+                    linked_subaccount = vcard.get("subaccount")
+                    if linked_subaccount and linked_subaccount.get("id"):
+                        spend_source_id = linked_subaccount["id"]
+                    elif config and config.get("selectedSpendSubaccount"):
                         spend_source_id = config["selectedSpendSubaccount"]["id"]
 
                     monthly_limit = vcard.get("monthlyLimit")
@@ -1295,64 +1302,105 @@ def get_bill_funding_source():
         return "Checking"
 
 
-def set_spend_pocket_action(user_id, pocket_id):
+def set_spend_pocket_action(user_id, pocket_id, card_id=None):
     try:
-        # --- FIX START: Resolve "Checking" to a real ID ---
+        headers = get_crew_headers()
+        if not headers: return {"error": "Credentials not found"}
+
+        # Resolve "Checking" to a real ID
+        resolved_pocket_id = pocket_id
         if pocket_id == "Checking":
-            # Fetch the list of subaccounts to find the ID for "Checking"
             all_subs = get_subaccounts_list()
-            
+
             if "error" in all_subs:
                 return {"error": "Could not resolve Checking ID"}
-                
+
             found_id = None
             for sub in all_subs.get("subaccounts", []):
                 if sub["name"] == "Checking":
                     found_id = sub["id"]
                     break
-            
+
             if found_id:
-                pocket_id = found_id
+                resolved_pocket_id = found_id
             else:
                 return {"error": "Checking subaccount not found"}
-        # --- FIX END ---
 
-        headers = get_crew_headers()
-        if not headers: return {"error": "Credentials not found"}
+        # Check if this is a virtual card by looking it up
+        is_virtual_card = False
+        if card_id:
+            cards_data = get_cards_data(force_refresh=False)
+            for vcard in cards_data.get("virtualCards", []):
+                if vcard.get("id") == card_id:
+                    is_virtual_card = True
+                    break
 
-        query_string = """
-        mutation SetActiveSpendPocketScottie($input: SetSpendSubaccountInput!) {
-          setSpendSubaccount(input: $input) {
-            result {
-              id
-              userSpendConfig {
-                id
-                selectedSpendSubaccount {
+        if is_virtual_card and card_id:
+            # Use updateVirtualDebitCard mutation for virtual cards
+            query_string = """
+            mutation UpdateVirtualDebitCard($input: UpdateVirtualDebitCardInput!) {
+              updateVirtualDebitCard(input: $input) {
+                result {
                   id
-                  clearedBalance
+                  subaccount {
+                    id
+                    displayName
+                    __typename
+                  }
                   __typename
                 }
                 __typename
               }
-              __typename
             }
-            __typename
-          }
-        }
-        """
+            """
 
-        variables = {
-            "input": {
-                "userId": user_id,
-                "selectedSpendSubaccountId": pocket_id
+            variables = {
+                "input": {
+                    "debitCardId": card_id,
+                    "subaccountId": resolved_pocket_id
+                }
             }
-        }
 
-        response = requests.post(URL, headers=headers, json={
-            "operationName": "SetActiveSpendPocketScottie",
-            "variables": variables,
-            "query": query_string
-        })
+            response = requests.post(URL, headers=headers, json={
+                "operationName": "UpdateVirtualDebitCard",
+                "variables": variables,
+                "query": query_string
+            })
+        else:
+            # Use setSpendSubaccount mutation for physical cards (user's global setting)
+            query_string = """
+            mutation SetActiveSpendPocketScottie($input: SetSpendSubaccountInput!) {
+              setSpendSubaccount(input: $input) {
+                result {
+                  id
+                  userSpendConfig {
+                    id
+                    selectedSpendSubaccount {
+                      id
+                      clearedBalance
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+            }
+            """
+
+            variables = {
+                "input": {
+                    "userId": user_id,
+                    "selectedSpendSubaccountId": resolved_pocket_id
+                }
+            }
+
+            response = requests.post(URL, headers=headers, json={
+                "operationName": "SetActiveSpendPocketScottie",
+                "variables": variables,
+                "query": query_string
+            })
 
         data = response.json()
 
@@ -1362,7 +1410,10 @@ def set_spend_pocket_action(user_id, pocket_id):
         print("🧹 Clearing Cache after spend pocket update...")
         cache.clear()
 
-        return {"success": True, "result": data.get("data", {}).get("setSpendSubaccount", {}).get("result")}
+        if is_virtual_card:
+            return {"success": True, "result": data.get("data", {}).get("updateVirtualDebitCard", {}).get("result")}
+        else:
+            return {"success": True, "result": data.get("data", {}).get("setSpendSubaccount", {}).get("result")}
 
     except Exception as e:
         return {"error": str(e)}
@@ -1719,7 +1770,8 @@ def api_set_card_spend():
     data = request.json
     return jsonify(set_spend_pocket_action(
         data.get('userId'),
-        data.get('pocketId')
+        data.get('pocketId'),
+        data.get('cardId')
     ))
 
 @app.route('/api/savings')

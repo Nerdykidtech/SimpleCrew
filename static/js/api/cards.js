@@ -46,7 +46,7 @@ function loadCards(forceRefresh = false) {
                         <span class="spend-label">Spend From:</span>
                         <select class="modern-select"
                                 onclick="event.stopPropagation()"
-                                onchange="updateSpendPocket(this, '${card.userId}')"> ${optionsHtml}
+                                onchange="updateSpendPocket(this, '${card.userId}', '${card.id}')"> ${optionsHtml}
                         </select>
                         <span class="type-badge type-badge-physical">Physical</span>
                     </div>
@@ -119,7 +119,7 @@ function renderVirtualCard(card) {
             <span class="spend-label">Spend From:</span>
             <select class="modern-select"
                     onclick="event.stopPropagation()"
-                    onchange="updateSpendPocket(this, '${card.userId}')"> ${optionsHtml}
+                    onchange="updateSpendPocket(this, '${card.userId}', '${card.id}')"> ${optionsHtml}
             </select>
             <span class="type-badge ${badgeClass}">${badgeText}</span>
         </div>
@@ -143,8 +143,9 @@ function adjustColor(color, amount) {
  * Update the spend pocket assignment for a card
  * @param {HTMLElement} selectElement - The select dropdown element
  * @param {string} userId - The user ID for the card
+ * @param {string} cardId - The card ID
  */
-function updateSpendPocket(selectElement, userId) {
+function updateSpendPocket(selectElement, userId, cardId) {
     const selectedPocketId = selectElement.value;
 
     // UI Feedback: Disable select temporarily
@@ -154,7 +155,8 @@ function updateSpendPocket(selectElement, userId) {
     // We send just the IDs to Python; Python handles the complex GraphQL
     const payload = {
         userId: userId,
-        pocketId: selectedPocketId
+        pocketId: selectedPocketId,
+        cardId: cardId
     };
 
     // UPDATED: Point to the specific Python route, not /api/graphql
@@ -173,14 +175,18 @@ function updateSpendPocket(selectElement, userId) {
 
         if (data.error) {
             appAlert("Failed to update: " + data.error, "Error");
-            // Optional: Reload cards to reset the dropdown to the server state
+            // Reload cards to reset the dropdown to the server state
             loadCards(true);
         } else {
             console.log("Spend pocket updated successfully", data);
 
             // Visual confirmation (flash green border)
             selectElement.style.borderColor = "#63BB67";
-            setTimeout(() => selectElement.style.borderColor = "#DDD", 1000);
+            setTimeout(() => {
+                selectElement.style.borderColor = "#DDD";
+                // Reload cards to show updated pocket name
+                loadCards(true);
+            }, 500);
         }
     })
     .catch(err => {
