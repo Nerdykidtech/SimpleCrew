@@ -988,12 +988,12 @@ def get_cards_data():
             if card:
                 user_data = card.get("user", {})
                 config = user_data.get("userSpendConfig")
-                
+
                 # Determine current spend source
                 spend_source_id = "Checking"
                 if config and config.get("selectedSpendSubaccount"):
                     spend_source_id = config["selectedSpendSubaccount"]["id"]
-                
+
                 all_cards.append({
                     "id": card.get("id"),
                     "userId": user_data.get("id"),
@@ -1003,10 +1003,155 @@ def get_cards_data():
                     "last4": card.get("lastFour"),
                     "color": card.get("color"),
                     "status": card.get("status"),
-                    "current_spend_id": spend_source_id 
+                    "current_spend_id": spend_source_id
                 })
 
-        return {"cards": all_cards}
+        # 2. Query for Virtual Cards
+        query_virtual = """
+        query VirtualCards {
+          currentUser {
+            id
+            family {
+              id
+              children {
+                id
+                virtualDebitCards {
+                  ...VirtualDebitCardFields
+                  __typename
+                }
+                __typename
+              }
+              parents {
+                id
+                virtualDebitCards {
+                  ...VirtualDebitCardFields
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+
+        fragment VirtualDebitCardFields on DebitCard {
+          id
+          type
+          color
+          status
+          lastFour
+          frozenStatus
+          name
+          monthlyLimit
+          monthlySpendToDate
+          subaccount {
+            id
+            displayName
+            belongsToCurrentUser
+            clearedBalance
+            __typename
+          }
+          user {
+            id
+            isChild
+            firstName
+            userSpendConfig {
+              id
+              selectedSpendSubaccount {
+                id
+                displayName
+                clearedBalance
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        """
+
+        res_virtual = requests.post(URL, headers=headers, json={"operationName": "VirtualCards", "query": query_virtual})
+        data_virtual = res_virtual.json()
+
+        virtual_cards = []
+
+        # Parse virtual cards from parents and children
+        fam_virtual = data_virtual.get("data", {}).get("currentUser", {}).get("family", {}) or {}
+
+        # Process parents' virtual cards
+        for parent in fam_virtual.get("parents", []):
+            for vcard in parent.get("virtualDebitCards", []):
+                if vcard.get("type") in ["VIRTUAL", "SINGLE_USE"]:
+                    user_data = vcard.get("user", {})
+                    config = user_data.get("userSpendConfig")
+
+                    # Determine current spend source
+                    spend_source_id = "Checking"
+                    if config and config.get("selectedSpendSubaccount"):
+                        spend_source_id = config["selectedSpendSubaccount"]["id"]
+
+                    # Calculate remaining limit if applicable
+                    monthly_limit = vcard.get("monthlyLimit")
+                    monthly_spend = vcard.get("monthlySpendToDate") or 0
+                    remaining = None
+                    if monthly_limit:
+                        # monthlySpendToDate is negative for spending
+                        remaining = (monthly_limit + monthly_spend) / 100.0
+                        monthly_limit = monthly_limit / 100.0
+
+                    virtual_cards.append({
+                        "id": vcard.get("id"),
+                        "userId": user_data.get("id"),
+                        "type": "Virtual" if vcard.get("type") == "VIRTUAL" else "Single-Use",
+                        "name": vcard.get("name") or "Virtual Card",
+                        "holder": user_data.get("firstName"),
+                        "last4": vcard.get("lastFour"),
+                        "color": vcard.get("color"),
+                        "status": vcard.get("status"),
+                        "frozenStatus": vcard.get("frozenStatus"),
+                        "monthlyLimit": monthly_limit,
+                        "remaining": remaining,
+                        "current_spend_id": spend_source_id,
+                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None
+                    })
+
+        # Process children's virtual cards
+        for child in fam_virtual.get("children", []):
+            for vcard in child.get("virtualDebitCards", []):
+                if vcard.get("type") in ["VIRTUAL", "SINGLE_USE"]:
+                    user_data = vcard.get("user", {})
+                    config = user_data.get("userSpendConfig")
+
+                    spend_source_id = "Checking"
+                    if config and config.get("selectedSpendSubaccount"):
+                        spend_source_id = config["selectedSpendSubaccount"]["id"]
+
+                    monthly_limit = vcard.get("monthlyLimit")
+                    monthly_spend = vcard.get("monthlySpendToDate") or 0
+                    remaining = None
+                    if monthly_limit:
+                        remaining = (monthly_limit + monthly_spend) / 100.0
+                        monthly_limit = monthly_limit / 100.0
+
+                    virtual_cards.append({
+                        "id": vcard.get("id"),
+                        "userId": user_data.get("id"),
+                        "type": "Virtual" if vcard.get("type") == "VIRTUAL" else "Single-Use",
+                        "name": vcard.get("name") or "Virtual Card",
+                        "holder": user_data.get("firstName"),
+                        "last4": vcard.get("lastFour"),
+                        "color": vcard.get("color"),
+                        "status": vcard.get("status"),
+                        "frozenStatus": vcard.get("frozenStatus"),
+                        "monthlyLimit": monthly_limit,
+                        "remaining": remaining,
+                        "current_spend_id": spend_source_id,
+                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None
+                    })
+
+        return {"cards": all_cards, "virtualCards": virtual_cards}
     except Exception as e:
         print(f"Card Error: {e}")
         return {"error": str(e)}
