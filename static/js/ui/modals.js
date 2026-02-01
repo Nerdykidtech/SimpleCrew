@@ -425,17 +425,13 @@ function openGoalDetailList(index) {
     const g = goalsDataStore[index];
     const modal = document.getElementById('tx-modal');
     modal.style.display = 'flex';
-    document.getElementById('modal-title-text').innerText = "Pocket Activity";
+    document.getElementById('modal-title-text').innerText = g.name;
     const body = document.getElementById('modal-body-content');
 
     // Set initial layout while loading
     const isCreditCard = g.isCreditCard === true;
     const amountLabel = isCreditCard ? 'Set Aside' : 'Saved';
     const targetText = g.target > 0 ? `${amountLabel} of ${fmt(g.target)}` : `Total ${amountLabel}`;
-
-    // Pre-fill group logic if needed (though we manage via the main button now, keeping this doesn't hurt)
-    // But per your request, the management button is the primary way now.
-    // Let's keep the standard detail view clean.
 
     body.innerHTML = `
         <div class="pocket-header">
@@ -444,7 +440,7 @@ function openGoalDetailList(index) {
         </div>
 
         <div class="pocket-tx-scroll" id="pocket-tx-list">
-            <div style="text-align:center; padding:20px; color:#999;">Loading activity...</div>
+            <div style="text-align:center; padding:20px; color:#999;">Loading transactions...</div>
         </div>
 
         <div style="margin-top: 20px; display: flex; flex-direction: row; gap: 15px;">
@@ -453,8 +449,8 @@ function openGoalDetailList(index) {
         </div>
     `;
 
-    // Fetch transactions for this pocket
-    fetch('/api/transactions?pageSize=100')
+    // Fetch transactions directly for this pocket
+    fetch(`/api/pocket-transactions/${encodeURIComponent(g.id)}?pageSize=50`)
         .then(res => res.json())
         .then(data => {
             const listContainer = document.getElementById('pocket-tx-list');
@@ -470,37 +466,50 @@ function openGoalDetailList(index) {
                 return;
             }
 
-            if (!data.transactions || !Array.isArray(data.transactions)) {
-                console.error('Invalid transactions data:', data);
-                listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:red;">Invalid data format</div>';
+            if (!data.transactions || data.transactions.length === 0) {
+                listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">No recent activity</div>';
                 return;
             }
 
-            const pocketTxs = data.transactions.filter(t => t.subaccountId === g.id);
-            console.log(`Found ${pocketTxs.length} transactions for pocket ${g.name} (ID: ${g.id})`);
+            let html = '';
+            data.transactions.forEach(tx => {
+                const date = tx.occurredAt
+                    ? new Date(tx.occurredAt).toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})
+                    : '';
+                const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
+                const sign = tx.amount > 0 ? '+' : '';
 
-            if (pocketTxs.length === 0) {
-                listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">No recent activity</div>';
-            } else {
-                let html = '';
-                pocketTxs.forEach(tx => {
-                    const date = new Date(tx.date).toLocaleDateString(undefined, {month:'short', day:'numeric'});
-                    const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
-                    const sign = tx.amount > 0 ? '+' : '';
+                // Determine the display title
+                let displayTitle = tx.title || tx.matchingName || 'Transaction';
 
-                    html += `
-                    <div class="pocket-tx-row">
+                // Add transfer type indicator if it's a transfer
+                let typeIndicator = '';
+                if (tx.transferType === 'SUBACCOUNT') {
+                    typeIndicator = '<span class="pocket-tx-type">Transfer</span>';
+                } else if (tx.type === 'CARD') {
+                    typeIndicator = '<span class="pocket-tx-type card">Card</span>';
+                }
+
+                html += `
+                <div class="pocket-tx-row">
+                    <div class="pocket-tx-left">
+                        <div class="pocket-tx-title">${displayTitle}${typeIndicator}</div>
                         <div class="pocket-tx-date">${date}</div>
-                        <div class="pocket-tx-title">${tx.title}</div>
-                        <div class="pocket-tx-amt ${amtClass}">${sign}${fmt(Math.abs(tx.amount))}</div>
                     </div>
-                    `;
-                });
-                listContainer.innerHTML = html;
+                    <div class="pocket-tx-amt ${amtClass}">${sign}${fmt(Math.abs(tx.amount))}</div>
+                </div>
+                `;
+            });
+
+            // Show load more if there are more pages
+            if (data.hasNextPage) {
+                html += `<div style="text-align:center; padding:15px; color:#999; font-size:12px;">Showing first 50 transactions</div>`;
             }
+
+            listContainer.innerHTML = html;
         })
         .catch(error => {
-            console.error('Error fetching transactions:', error);
+            console.error('Error fetching pocket transactions:', error);
             const listContainer = document.getElementById('pocket-tx-list');
             if (listContainer) {
                 listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:red;">Error loading transactions</div>';

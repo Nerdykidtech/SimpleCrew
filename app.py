@@ -1804,6 +1804,117 @@ def api_transactions():
         print(f"Error loading credit card transactions: {e}")
 
     return jsonify(result)
+
+@app.route('/api/pocket-transactions/<path:pocket_id>')
+def api_pocket_transactions(pocket_id):
+    """Fetch transactions for a specific pocket/subaccount"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"})
+
+        account_id = get_primary_account_id()
+        if not account_id:
+            return jsonify({"error": "Could not find Account ID"})
+
+        page_size = request.args.get('pageSize', 50, type=int)
+
+        query_string = """
+        query RecentActivity($accountId: ID!, $cursor: String, $pageSize: Int = 50, $searchFilters: CashTransactionFilter) {
+          account: node(id: $accountId) {
+            ... on Account {
+              id
+              cashTransactions(first: $pageSize, after: $cursor, searchFilters: $searchFilters) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                edges {
+                  node {
+                    id
+                    amount
+                    currencyCode
+                    memo
+                    externalMemo
+                    imageUrl
+                    occurredAt
+                    matchingName
+                    status
+                    title
+                    type
+                    subaccount {
+                      id
+                      displayName
+                    }
+                    transfer {
+                      id
+                      type
+                      status
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "pageSize": page_size,
+            "accountId": account_id,
+            "searchFilters": {
+                "subaccountId": pocket_id
+            }
+        }
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "RecentActivity",
+            "variables": variables,
+            "query": query_string
+        })
+
+        if response.status_code != 200:
+            return jsonify({"error": f"API Error: {response.text}"})
+
+        data = response.json()
+
+        if 'errors' in data:
+            return jsonify({"error": data['errors'][0].get('message', 'Unknown error')})
+
+        edges = data.get('data', {}).get('account', {}).get('cashTransactions', {}).get('edges', [])
+        page_info = data.get('data', {}).get('account', {}).get('cashTransactions', {}).get('pageInfo', {})
+
+        transactions = []
+        for edge in edges:
+            node = edge.get('node', {})
+            amt = node.get('amount', 0) / 100.0
+            date_str = node.get('occurredAt', '')[:10] if node.get('occurredAt') else ''
+
+            transactions.append({
+                "id": node.get('id'),
+                "title": node.get('title'),
+                "matchingName": node.get('matchingName'),
+                "amount": amt,
+                "date": date_str,
+                "occurredAt": node.get('occurredAt'),
+                "type": node.get('type'),
+                "status": node.get('status'),
+                "memo": node.get('memo'),
+                "externalMemo": node.get('externalMemo'),
+                "imageUrl": node.get('imageUrl'),
+                "transferType": node.get('transfer', {}).get('type') if node.get('transfer') else None
+            })
+
+        return jsonify({
+            "transactions": transactions,
+            "hasNextPage": page_info.get('hasNextPage', False),
+            "endCursor": page_info.get('endCursor')
+        })
+
+    except Exception as e:
+        print(f"Pocket transactions error: {e}")
+        return jsonify({"error": str(e)})
+
 @app.route('/api/transaction/<path:tx_id>')
 def api_transaction_detail(tx_id): return jsonify(get_transaction_detail(tx_id))
 

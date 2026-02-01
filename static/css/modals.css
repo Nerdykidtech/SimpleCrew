@@ -244,11 +244,43 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 0;
+            padding: 12px 0;
             border-bottom: 1px solid var(--border-color-light);
             font-size: 14px;
         }
         .pocket-tx-row:last-child { border-bottom: none; }
-        .pocket-tx-date { color: var(--text-muted); font-size: 12px; width: 80px; }
-        .pocket-tx-title { font-weight: 600; color: var(--text-dark); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px; }
-        .pocket-tx-amt { font-weight: 600; text-align: right; }
+        .pocket-tx-left {
+            flex: 1;
+            min-width: 0;
+            padding-right: 15px;
+        }
+        .pocket-tx-title {
+            font-weight: 600;
+            color: var(--text-dark);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pocket-tx-date {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 2px;
+        }
+        .pocket-tx-type {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #E8F5E9;
+            color: #2E7D32;
+            flex-shrink: 0;
+        }
+        .pocket-tx-type.card {
+            background: #FFF3E0;
+            color: #E65100;
+        }
+        .pocket-tx-amt { font-weight: 600; text-align: right; white-space: nowrap; }
