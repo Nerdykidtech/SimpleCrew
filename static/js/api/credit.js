@@ -587,23 +587,37 @@ function loadSimpleFinAccounts() {
             const org = account.org || '';
             const currency = account.currency || '';
             const balance = account.balance || 0;
+            const isCreditAccount = account.is_credit_account || false;
+
+            // Disable if NOT a credit account (depository accounts can't be synced)
+            const isDisabled = !isCreditAccount;
+            const disabledStyles = isDisabled ? 'opacity: 0.6; cursor: not-allowed; pointer-events: none;' : '';
+            const hoverStyles = isDisabled ? '' : 'this.style.borderColor="var(--simple-blue)"; this.style.boxShadow="0 2px 8px var(--shadow-strong)";';
+            const mouseoutStyles = isDisabled ? '' : 'this.style.borderColor="var(--border-color)"; this.style.boxShadow="none";';
 
             html += `
-                <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s;"
-                     onclick="selectSimpleFinAccount('${accountId}', '${accountName.replace(/'/g, "\\'")}')"
-                     onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 2px 8px var(--shadow-strong)'"
-                     onmouseout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none'">
+                <div style="background: var(--bg-card); border: 2px solid ${isDisabled ? 'var(--alert-red)' : 'var(--border-color)'}; border-radius: 8px; padding: 20px; cursor: ${isDisabled ? 'not-allowed' : 'pointer'}; transition: all 0.2s; ${disabledStyles} position: relative;"
+                     onclick="${isDisabled ? '' : `selectSimpleFinAccount('${accountId}', '${accountName.replace(/'/g, "\\'")}')`}"
+                     onmouseover="${hoverStyles}"
+                     onmouseout="${mouseoutStyles}"
+                     title="${isDisabled ? 'Only credit card accounts can be synced with SimpleFin' : ''}">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-                        <div style="width: 40px; height: 40px; background: var(--bg-elevated); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏦</div>
+                        <div style="width: 40px; height: 40px; background: var(--bg-elevated); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                            ${isDisabled ? '🔒' : '💳'}
+                        </div>
                         <div style="flex: 1;">
-                            <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${accountName}</div>
+                            <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">
+                                ${accountName}
+                                ${isDisabled ? '<span style="background: var(--alert-red); color: white; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 500;">Not Compatible</span>' : ''}
+                            </div>
                             <div style="font-size: 13px; color: var(--text-light); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                                 ${org ? `<span>${org}</span>` : ''}
                                 ${currency ? `<span>• ${currency}</span>` : ''}
                                 ${balance ? `<span>• Balance: ${fmt(Math.abs(balance))}</span>` : ''}
+                                ${isDisabled ? '<span style="color: var(--alert-red); font-weight: 500;">• Depository Account</span>' : ''}
                             </div>
                         </div>
-                        <div style="font-size: 24px; color: var(--simple-blue);">→</div>
+                        <div style="font-size: 24px; color: ${isDisabled ? 'var(--alert-red)' : 'var(--simple-blue)'};">${isDisabled ? '✗' : '→'}</div>
                     </div>
                 </div>
             `;

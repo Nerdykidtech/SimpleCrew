@@ -3038,6 +3038,7 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         print(f"  Already have {len(seen_ids)} transactions in database")
 
         new_transactions = []
+        payment_transactions = []  # Track payments to move money back from pocket
         for tx in transactions:
             tx_id = tx.get("id")
             if not tx_id:
@@ -3049,10 +3050,13 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
             # SimpleFin amounts may be strings, convert to float
             amount_str = tx.get("amount", "0")
             try:
-                amount = abs(float(amount_str))  # SimpleFin amounts are in dollars, negative for debits
+                amount_float = float(amount_str)
+                is_payment = amount_float > 0  # Positive = payment/credit, negative = purchase/debit
+                amount = abs(amount_float)  # Store absolute value
             except (ValueError, TypeError):
                 print(f"  ⚠️ Could not parse transaction amount '{amount_str}', using 0")
                 amount = 0
+                is_payment = False
 
             description = tx.get("description", "")
             posted = tx.get("posted")  # Unix timestamp
@@ -3074,7 +3078,12 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                 except:
                     date_str = str(transacted)
 
-            print(f"  💳 New transaction: ${amount} - {description} (ID: {tx_id})")
+            if is_payment:
+                print(f"  💳 Payment received: ${amount} - {description} (ID: {tx_id})")
+                payment_transactions.append(tx)
+            else:
+                print(f"  💳 New transaction: ${amount} - {description} (ID: {tx_id})")
+                new_transactions.append(tx)
 
             c.execute("""INSERT OR IGNORE INTO credit_card_transactions
                          (transaction_id, account_id, amount, date, merchant, description, is_pending)
@@ -3082,7 +3091,6 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                      (tx_id, account_id, amount, date_str, "", description, 1 if pending else 0))
 
             if c.rowcount > 0:
-                new_transactions.append(tx)
                 print(f"  ✅ Inserted transaction {tx_id}")
             else:
                 print(f"  ⚠️ Transaction {tx_id} was not inserted (already exists or error)")
@@ -3130,6 +3138,47 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                             cache.clear()
         elif new_transactions and is_initial_sync:
             print(f"⏭️ Skipping automatic money movement for initial sync ({len(new_transactions)} historical transactions stored)", flush=True)
+
+        # Move money from Credit Card pocket back to Checking for payment transactions
+        # Skip automatic money movement on initial sync to avoid huge transfers for historical transactions
+        if payment_transactions and pocket_id and not is_initial_sync:
+            headers_crew = get_crew_headers()
+            if headers_crew:
+                # Get Checking subaccount ID
+                all_subs = get_subaccounts_list()
+                checking_subaccount_id = None
+                if "error" not in all_subs:
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                if checking_subaccount_id:
+                    # Check batch_mode setting for this account
+                    c.execute("SELECT batch_mode FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+                    batch_row = c.fetchone()
+                    batch_mode = batch_row[0] if batch_row and batch_row[0] is not None else 1  # Default to batch mode
+
+                    if batch_mode == 0:
+                        # Individual transfers mode: one transfer per payment with description as memo
+                        print(f"💸 Creating {len(payment_transactions)} individual payment transfer(s) from Credit Card pocket to Checking", flush=True)
+                        for tx in payment_transactions:
+                            tx_amount = abs(float(tx.get("amount", 0)))
+                            if tx_amount > 0.01:
+                                # Use description as payment reference (SimpleFin stores payment info in description)
+                                payment_ref = tx.get("description", "").strip() or "Credit Card Payment"
+                                print(f"  💳 Moving ${tx_amount:.2f} - {payment_ref}", flush=True)
+                                move_money(pocket_id, checking_subaccount_id, str(tx_amount), payment_ref)
+                        cache.clear()
+                    else:
+                        # Batch mode: sum all payments into one transfer
+                        total_payments = sum(abs(float(tx.get("amount", 0))) for tx in payment_transactions)
+                        if total_payments > 0.01:
+                            print(f"💸 Moving ${total_payments:.2f} from Credit Card pocket to Checking for {len(payment_transactions)} payment(s)", flush=True)
+                            move_money(pocket_id, checking_subaccount_id, str(total_payments), f"SimpleFin: {len(payment_transactions)} payment(s)")
+                            cache.clear()
+        elif payment_transactions and is_initial_sync:
+            print(f"⏭️ Skipping automatic payment transfers for initial sync ({len(payment_transactions)} historical payments stored)", flush=True)
 
         # Update pocket balance to match SimpleFin balance
         # Always save the balance to database, even during initial sync
@@ -3367,16 +3416,23 @@ def simplefin_get_accounts(access_url, account_id=None):
             # SimpleFin returns balance as a string, convert to float
             balance_str = account.get("balance", "0")
             try:
-                balance = float(balance_str)
+                balance_float = float(balance_str)
             except (ValueError, TypeError):
-                balance = 0
+                balance_float = 0
+
+            # Credit accounts have negative balance (amount owed)
+            # Also check if balance_str starts with "-" to catch "-0" cases
+            is_credit_account = balance_float < 0 or (balance_str and str(balance_str).strip().startswith("-"))
 
             accounts.append({
                 "id": account.get("id"),
                 "name": account.get("name", "Unknown Account"),
-                "balance": balance,  # SimpleFin balance is in dollars
+                "balance": balance_float,  # SimpleFin balance is in dollars
                 "currency": account.get("currency", "USD"),
-                "org": account.get("org", {}).get("name", "Unknown")
+                "org": account.get("org", {}).get("name", "Unknown"),
+                "type": account.get("type"),
+                "subtype": account.get("subtype"),
+                "is_credit_account": is_credit_account,  # Flag for credit accounts (negative balance)
             })
 
         return {"accounts": accounts}
