@@ -44,6 +44,14 @@ function updateDarkModeToggle(isDark) {
         toggle.textContent = isDark ? '☀️' : '🌙';
         toggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
     }
+    updateThemeLogo(isDark);
+}
+
+function updateThemeLogo(isDark) {
+    const logos = document.querySelectorAll('.theme-logo');
+    logos.forEach(logo => {
+        logo.src = isDark ? '/static/images/logo_white.png' : '/static/images/logo.png';
+    });
 }
 
 function updateThemeColor(theme) {

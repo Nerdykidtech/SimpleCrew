@@ -281,7 +281,7 @@
     <div class="onboarding-container">
         <!-- Step 1: Provider Selection -->
         <div id="provider-selection" class="provider-selection">
-            <div class="onboarding-logo"><img src="/static/images/logo.png" alt="SimpleCrew" style="height: 60px; width: auto;"></div>
+            <div class="onboarding-logo"><img src="/static/images/logo.png" alt="SimpleCrew" style="height: 60px; width: auto;" class="theme-logo"></div>
             <h1 class="onboarding-title">Welcome to SimpleCrew</h1>
             <p class="onboarding-subtitle">Choose your banking provider to get started</p>
 
@@ -344,6 +344,24 @@
     </div>
 
     <script>
+        // Theme-based logo handling
+        function updateThemeLogo() {
+            const savedTheme = localStorage.getItem('theme');
+            const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const isDark = savedTheme === 'dark' || (!savedTheme && systemPrefersDark);
+
+            const logos = document.querySelectorAll('.theme-logo');
+            logos.forEach(logo => {
+                logo.src = isDark ? '/static/images/logo_white.png' : '/static/images/logo.png';
+            });
+        }
+
+        // Initialize logo on load
+        updateThemeLogo();
+
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeLogo);
+
         function selectProvider(provider) {
             if (provider === 'crew') {
                 document.getElementById('provider-selection').style.display = 'none';
