@@ -263,6 +263,15 @@
             letter-spacing: 0.5px;
         }
 
+        .attached-bill-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-dark);
+            background: var(--exp-track);
+            padding: 6px 12px;
+            border-radius: 4px;
+        }
+
         .modern-select {
             appearance: none;
             -webkit-appearance: none;

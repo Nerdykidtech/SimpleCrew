@@ -1045,6 +1045,12 @@ def get_cards_data():
           name
           monthlyLimit
           monthlySpendToDate
+          isAttachedToBill
+          bills {
+            id
+            name
+            __typename
+          }
           subaccount {
             id
             displayName
@@ -1104,6 +1110,14 @@ def get_cards_data():
                         remaining = (monthly_limit + monthly_spend) / 100.0
                         monthly_limit = monthly_limit / 100.0
 
+                    # Check if attached to a bill
+                    is_attached_to_bill = vcard.get("isAttachedToBill", False)
+                    attached_bill_name = None
+                    if is_attached_to_bill:
+                        bills = vcard.get("bills", [])
+                        if bills and len(bills) > 0:
+                            attached_bill_name = bills[0].get("name")
+
                     virtual_cards.append({
                         "id": vcard.get("id"),
                         "userId": user_data.get("id"),
@@ -1117,7 +1131,9 @@ def get_cards_data():
                         "monthlyLimit": monthly_limit,
                         "remaining": remaining,
                         "current_spend_id": spend_source_id,
-                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None
+                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None,
+                        "isAttachedToBill": is_attached_to_bill,
+                        "attachedBillName": attached_bill_name
                     })
 
         # Process children's virtual cards
@@ -1142,6 +1158,14 @@ def get_cards_data():
                         remaining = (monthly_limit + monthly_spend) / 100.0
                         monthly_limit = monthly_limit / 100.0
 
+                    # Check if attached to a bill
+                    is_attached_to_bill = vcard.get("isAttachedToBill", False)
+                    attached_bill_name = None
+                    if is_attached_to_bill:
+                        bills = vcard.get("bills", [])
+                        if bills and len(bills) > 0:
+                            attached_bill_name = bills[0].get("name")
+
                     virtual_cards.append({
                         "id": vcard.get("id"),
                         "userId": user_data.get("id"),
@@ -1155,7 +1179,9 @@ def get_cards_data():
                         "monthlyLimit": monthly_limit,
                         "remaining": remaining,
                         "current_spend_id": spend_source_id,
-                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None
+                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None,
+                        "isAttachedToBill": is_attached_to_bill,
+                        "attachedBillName": attached_bill_name
                     })
 
         return {"cards": all_cards, "virtualCards": virtual_cards}

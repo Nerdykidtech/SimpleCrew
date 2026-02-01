@@ -80,15 +80,7 @@ function renderVirtualCard(card) {
     const bg = cardColors[card.color] || '#333';
     const isFrozen = card.frozenStatus === 'FROZEN';
     const isSingleUse = card.type === 'Single-Use';
-
-    // Build spend from dropdown options
-    let optionsHtml = `<option value="Checking" ${card.current_spend_id === 'Checking' ? 'selected' : ''}>Safe-to-Spend</option>`;
-    if (typeof goalsDataStore !== 'undefined') {
-        goalsDataStore.forEach(goal => {
-            const isSelected = card.current_spend_id === goal.id ? 'selected' : '';
-            optionsHtml += `<option value="${goal.id}" ${isSelected}>${goal.name}</option>`;
-        });
-    }
+    const isAttachedToBill = card.isAttachedToBill;
 
     // Card meta info
     let metaInfo = `..${card.last4}`;
@@ -106,6 +98,31 @@ function renderVirtualCard(card) {
     const badgeClass = isSingleUse ? 'type-badge-single-use' : 'type-badge-virtual';
     const badgeText = isSingleUse ? 'Single-Use' : 'Virtual';
 
+    // Build spend controls - either dropdown or bill attachment label
+    let spendControlsHtml;
+    if (isAttachedToBill && card.attachedBillName) {
+        spendControlsHtml = `
+            <span class="spend-label">Attached to:</span>
+            <span class="attached-bill-name">${card.attachedBillName}</span>
+        `;
+    } else {
+        // Build spend from dropdown options
+        let optionsHtml = `<option value="Checking" ${card.current_spend_id === 'Checking' ? 'selected' : ''}>Safe-to-Spend</option>`;
+        if (typeof goalsDataStore !== 'undefined') {
+            goalsDataStore.forEach(goal => {
+                const isSelected = card.current_spend_id === goal.id ? 'selected' : '';
+                optionsHtml += `<option value="${goal.id}" ${isSelected}>${goal.name}</option>`;
+            });
+        }
+        spendControlsHtml = `
+            <span class="spend-label">Spend From:</span>
+            <select class="modern-select"
+                    onclick="event.stopPropagation()"
+                    onchange="updateSpendPocket(this, '${card.userId}', '${card.id}')"> ${optionsHtml}
+            </select>
+        `;
+    }
+
     return `
     <div class="card-row card-row-virtual">
         <div class="card-icon card-icon-virtual" style="background: linear-gradient(135deg, ${bg} 0%, ${adjustColor(bg, -30)} 100%);">
@@ -116,11 +133,7 @@ function renderVirtualCard(card) {
             <div class="card-meta">${card.holder} • ${metaInfo}</div>
         </div>
         <div class="card-controls">
-            <span class="spend-label">Spend From:</span>
-            <select class="modern-select"
-                    onclick="event.stopPropagation()"
-                    onchange="updateSpendPocket(this, '${card.userId}', '${card.id}')"> ${optionsHtml}
-            </select>
+            ${spendControlsHtml}
             <span class="type-badge ${badgeClass}">${badgeText}</span>
         </div>
     </div>`;
