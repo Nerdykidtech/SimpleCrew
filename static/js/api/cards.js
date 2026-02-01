@@ -38,8 +38,10 @@ function buildSpendOptionsHtml(selectedId) {
         // Only show pockets from the same owner
         if (ownerGroup) {
             ownerGroup.pockets.forEach(pocket => {
-                // Map "Checking" display to "Safe-to-Spend"
-                const displayName = pocket.name === 'Checking' ? 'Safe-to-Spend' : pocket.name;
+                // Only rename "Checking" to "Safe-to-Spend" for main account, not for kids
+                const displayName = (pocket.name === 'Checking' && ownerGroup.ownerType === 'main')
+                    ? 'Safe-to-Spend'
+                    : pocket.name;
                 const isSelected = pocket.id === selectedId ? 'selected' : '';
                 html += `<option value="${pocket.id}" ${isSelected}>${displayName}</option>`;
             });
