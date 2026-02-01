@@ -286,6 +286,23 @@
                 padding: 20px;
             }
 
+            /* CREDIT CARD SYNC SETTINGS - MOBILE LAYOUT */
+            #timezone-select,
+            #sync-schedule-select {
+                width: 100%;
+            }
+
+            /* Change grid to stacked layout on mobile */
+            .sync-settings-grid {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 12px !important;
+            }
+
+            .sync-settings-grid > label {
+                margin-top: 8px;
+            }
+
         /* NEW STYLES FOR MOBILE STS DROPDOWN */
         .mobile-sts-dropdown {
             display: none;

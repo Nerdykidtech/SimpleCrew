@@ -84,6 +84,24 @@ function renderAccountCards(accounts) {
                             </div>
                         </div>
 
+                        <!-- Transfer Mode Toggle -->
+                        <div style="background: var(--bg-elevated); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-size: 13px; font-weight: 600; color: var(--text-dark);">Transfer Mode</div>
+                                    <div id="batch-mode-label-${account.accountId}" style="font-size: 11px; color: var(--text-muted);">Loading...</div>
+                                </div>
+                                <div style="display: flex; gap: 4px;">
+                                    <button id="batch-btn-${account.accountId}" onclick="setBatchMode('${account.accountId}', 1)" class="batch-mode-btn" style="padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 6px 0 0 6px; font-size: 12px; cursor: pointer; background: var(--bg-card); color: var(--text-dark);">
+                                        Batch
+                                    </button>
+                                    <button id="individual-btn-${account.accountId}" onclick="setBatchMode('${account.accountId}', 0)" class="batch-mode-btn" style="padding: 6px 12px; border: 1px solid var(--border-color); border-left: none; border-radius: 0 6px 6px 0; font-size: 12px; cursor: pointer; background: var(--bg-card); color: var(--text-dark);">
+                                        Individual
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div style="display: flex; gap: 8px; margin-top: 16px;">
                             <button onclick="syncAccountBalance('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
                                 🔄 Sync
@@ -98,9 +116,79 @@ function renderAccountCards(accounts) {
                     </div>
                 `;
                 container.insertAdjacentHTML('beforeend', cardHtml);
+
+                // Fetch and update batch mode for this account
+                loadBatchMode(account.accountId);
             });
         })
         .catch(err => console.error('Error loading pocket balances:', err));
+}
+
+/**
+ * Loads and displays the current batch mode for an account
+ */
+function loadBatchMode(accountId) {
+    fetch('/api/simplefin/get-batch-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.batch_mode !== undefined) {
+            updateBatchModeUI(accountId, data.batch_mode);
+        }
+    })
+    .catch(err => console.error('Error loading batch mode:', err));
+}
+
+/**
+ * Updates the batch mode UI for an account
+ */
+function updateBatchModeUI(accountId, batchMode) {
+    const batchBtn = document.getElementById(`batch-btn-${accountId}`);
+    const individualBtn = document.getElementById(`individual-btn-${accountId}`);
+    const label = document.getElementById(`batch-mode-label-${accountId}`);
+
+    if (!batchBtn || !individualBtn || !label) return;
+
+    if (batchMode === 1) {
+        batchBtn.style.background = 'var(--simple-blue)';
+        batchBtn.style.color = 'white';
+        batchBtn.style.borderColor = 'var(--simple-blue)';
+        individualBtn.style.background = 'var(--bg-card)';
+        individualBtn.style.color = 'var(--text-dark)';
+        individualBtn.style.borderColor = 'var(--border-color)';
+        label.textContent = 'One transfer for all new transactions';
+    } else {
+        individualBtn.style.background = 'var(--simple-blue)';
+        individualBtn.style.color = 'white';
+        individualBtn.style.borderColor = 'var(--simple-blue)';
+        batchBtn.style.background = 'var(--bg-card)';
+        batchBtn.style.color = 'var(--text-dark)';
+        batchBtn.style.borderColor = 'var(--border-color)';
+        label.textContent = 'Separate transfer per transaction (with merchant name)';
+    }
+}
+
+/**
+ * Sets the batch mode for an account
+ */
+function setBatchMode(accountId, batchMode) {
+    fetch('/api/simplefin/set-batch-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId, batch_mode: batchMode })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            updateBatchModeUI(accountId, batchMode);
+        } else {
+            console.error('Failed to set batch mode:', data.error);
+        }
+    })
+    .catch(err => console.error('Error setting batch mode:', err));
 }
 
 /**

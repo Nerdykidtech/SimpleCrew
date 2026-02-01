@@ -337,8 +337,9 @@ function loadCreditAccounts(status) {
             updateLastSyncDisplay(data.lastSync);
         });
 
-    // Load sync schedule settings
+    // Load sync schedule settings and timezone
     loadSyncScheduleSettings();
+    loadTimezone();
 }
 
 /**
@@ -1241,6 +1242,48 @@ function updateSyncSchedule() {
             appAlert('✅ Sync schedule updated successfully!', 'Success');
         } else {
             appAlert('Error updating sync schedule: ' + data.error, 'Error');
+        }
+    })
+    .catch(err => {
+        appAlert('Error: ' + err.message, 'Error');
+    });
+}
+
+/**
+ * Load the configured timezone and populate selector
+ */
+function loadTimezone() {
+    fetch('/api/simplefin/timezone')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.timezone) {
+                const selectEl = document.getElementById('timezone-select');
+                if (selectEl) {
+                    selectEl.value = data.timezone;
+                }
+            }
+        })
+        .catch(err => console.error('Error loading timezone:', err));
+}
+
+/**
+ * Update timezone setting
+ */
+function updateTimezone() {
+    const selectEl = document.getElementById('timezone-select');
+    const timezone = selectEl.value;
+
+    fetch('/api/simplefin/timezone', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ timezone: timezone })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appAlert('✅ Timezone updated to ' + timezone, 'Success');
+        } else {
+            appAlert('Error updating timezone: ' + data.error, 'Error');
         }
     })
     .catch(err => {

@@ -210,6 +210,14 @@ def init_db():
         c.execute("ALTER TABLE credit_card_config ADD COLUMN current_balance REAL DEFAULT 0")
         conn.commit()
 
+    # Migration: Add batch_mode column if it doesn't exist (1 = batch transfers, 0 = individual transfers)
+    try:
+        c.execute("SELECT batch_mode FROM credit_card_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding batch_mode column to credit_card_config...")
+        c.execute("ALTER TABLE credit_card_config ADD COLUMN batch_mode INTEGER DEFAULT 1")
+        conn.commit()
+
     # Migration: Move simplefin_access_url to new simplefin_config table
     # First check if credit_card_config has the old column with data
     has_old_data = False
@@ -903,6 +911,31 @@ def get_family_subaccounts():
         return result
     except Exception as e:
         return {"error": str(e)}
+
+def get_configured_timezone():
+    """Get the user's configured timezone from database, defaults to local system time"""
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from datetime import timezone as tz_module
+        # Fallback for Python < 3.9
+        return None
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT sync_timezone FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        if row and row[0]:
+            try:
+                return ZoneInfo(row[0])
+            except:
+                return None
+        return None
+    except:
+        return None
 
 def move_money(from_id, to_id, amount, note=""):
     try:
@@ -2774,11 +2807,12 @@ def check_credit_card_transactions():
         # Batch fetch SimpleFin data for all due accounts in a single request
         simplefin_data = None
         if simplefin_to_sync:
-            from datetime import datetime, timezone
-            now_utc = datetime.now(timezone.utc)
-            start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
-            end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
-            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+            from datetime import datetime
+            tz = get_configured_timezone()
+            now_local = datetime.now(tz) if tz else datetime.now()
+            start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
+            end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
+            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
             params = [
                 ('start-date', start_timestamp),
                 ('end-date', end_timestamp),
@@ -2946,12 +2980,13 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         else:
             print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id} (initial={is_initial_sync})", flush=True)
 
-            # Calculate date range: current calendar month
-            from datetime import datetime, timezone
-            now_utc = datetime.now(timezone.utc)
-            start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
-            end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
-            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+            # Calculate date range: current calendar month (using configured timezone)
+            from datetime import datetime
+            tz = get_configured_timezone()
+            now_local = datetime.now(tz) if tz else datetime.now()
+            start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
+            end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
+            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
 
             # Fetch account data from SimpleFin, filtered to just this account
             params = {
@@ -3070,11 +3105,29 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                             break
 
                 if checking_subaccount_id:
-                    total_new_spending = sum(abs(float(tx.get("amount", 0))) for tx in new_transactions)
-                    if total_new_spending > 0.01:
-                        print(f"💸 Moving ${total_new_spending:.2f} from Checking to Credit Card pocket for {len(new_transactions)} new transaction(s)", flush=True)
-                        move_money(checking_subaccount_id, pocket_id, str(total_new_spending), f"SimpleFin: {len(new_transactions)} new transaction(s)")
+                    # Check batch_mode setting for this account
+                    c.execute("SELECT batch_mode FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+                    batch_row = c.fetchone()
+                    batch_mode = batch_row[0] if batch_row and batch_row[0] is not None else 1  # Default to batch mode
+
+                    if batch_mode == 0:
+                        # Individual transfers mode: one transfer per transaction with merchant name as memo
+                        print(f"💸 Creating {len(new_transactions)} individual transfer(s) from Checking to Credit Card pocket", flush=True)
+                        for tx in new_transactions:
+                            tx_amount = abs(float(tx.get("amount", 0)))
+                            if tx_amount > 0.01:
+                                # Use description as merchant name (SimpleFin stores merchant info in description)
+                                merchant_name = tx.get("description", "").strip() or "Credit Card Transaction"
+                                print(f"  💳 Moving ${tx_amount:.2f} - {merchant_name}", flush=True)
+                                move_money(checking_subaccount_id, pocket_id, str(tx_amount), merchant_name)
                         cache.clear()
+                    else:
+                        # Batch mode: sum all transactions into one transfer
+                        total_new_spending = sum(abs(float(tx.get("amount", 0))) for tx in new_transactions)
+                        if total_new_spending > 0.01:
+                            print(f"💸 Moving ${total_new_spending:.2f} from Checking to Credit Card pocket for {len(new_transactions)} new transaction(s)", flush=True)
+                            move_money(checking_subaccount_id, pocket_id, str(total_new_spending), f"SimpleFin: {len(new_transactions)} new transaction(s)")
+                            cache.clear()
         elif new_transactions and is_initial_sync:
             print(f"⏭️ Skipping automatic money movement for initial sync ({len(new_transactions)} historical transactions stored)", flush=True)
 
@@ -3488,11 +3541,12 @@ def api_simplefin_create_pocket_with_balance():
         current_balance_value = 0
         if access_url:
             try:
-                from datetime import datetime, timezone
-                now_utc = datetime.now(timezone.utc)
-                start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
-                end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
-                end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+                from datetime import datetime
+                tz = get_configured_timezone()
+                now_local = datetime.now(tz) if tz else datetime.now()
+                start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
+                end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
+                end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
 
                 params = {
                     'start-date': start_timestamp,
@@ -3655,6 +3709,69 @@ def api_simplefin_sync_balance():
 
         cache.clear()
         return jsonify({"success": True, "message": "Balance synced", "targetBalance": target_balance, "previousBalance": current_balance})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/get-batch-mode', methods=['POST'])
+def api_simplefin_get_batch_mode():
+    """Get the batch mode setting for a SimpleFin account"""
+    try:
+        data = request.get_json()
+        account_id = data.get("account_id")
+
+        if not account_id:
+            return jsonify({"error": "account_id is required"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        c.execute("SELECT batch_mode FROM credit_card_config WHERE account_id = ? AND provider = 'simplefin'", (account_id,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({"error": "Account not found"}), 404
+
+        # Default to 1 (batch mode) if NULL
+        batch_mode = row[0] if row[0] is not None else 1
+        return jsonify({"batch_mode": batch_mode})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/set-batch-mode', methods=['POST'])
+def api_simplefin_set_batch_mode():
+    """Set the batch mode setting for a SimpleFin account"""
+    try:
+        data = request.get_json()
+        account_id = data.get("account_id")
+        batch_mode = data.get("batch_mode")
+
+        if not account_id:
+            return jsonify({"error": "account_id is required"}), 400
+
+        if batch_mode is None:
+            return jsonify({"error": "batch_mode is required (0 or 1)"}), 400
+
+        # Validate batch_mode is 0 or 1
+        batch_mode = int(batch_mode)
+        if batch_mode not in (0, 1):
+            return jsonify({"error": "batch_mode must be 0 or 1"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        c.execute("UPDATE credit_card_config SET batch_mode = ? WHERE account_id = ? AND provider = 'simplefin'", (batch_mode, account_id))
+        conn.commit()
+
+        if c.rowcount == 0:
+            conn.close()
+            return jsonify({"error": "Account not found"}), 404
+
+        conn.close()
+
+        mode_name = "Batch" if batch_mode == 1 else "Individual"
+        print(f"🔧 Updated batch mode for account {account_id} to: {mode_name}", flush=True)
+        return jsonify({"success": True, "batch_mode": batch_mode, "message": f"Transfer mode set to {mode_name}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -3929,6 +4046,57 @@ def api_set_simplefin_sync_schedule():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/simplefin/timezone', methods=['GET'])
+def api_get_simplefin_timezone():
+    """Get the configured timezone"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT sync_timezone FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        timezone = row[0] if row and row[0] else "America/Denver"
+        return jsonify({"success": True, "timezone": timezone})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simplefin/timezone', methods=['POST'])
+def api_set_simplefin_timezone():
+    """Set the timezone for date calculations"""
+    try:
+        data = request.get_json()
+        timezone = data.get("timezone")
+
+        if not timezone:
+            return jsonify({"error": "timezone is required"}), 400
+
+        # Validate timezone
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(timezone)
+        except:
+            return jsonify({"error": f"Invalid timezone: {timezone}"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        c.execute("SELECT id FROM simplefin_config LIMIT 1")
+        existing = c.fetchone()
+
+        if existing:
+            c.execute("UPDATE simplefin_config SET sync_timezone = ? WHERE id = ?", (timezone, existing[0]))
+        else:
+            c.execute("INSERT INTO simplefin_config (sync_timezone) VALUES (?)", (timezone,))
+
+        conn.commit()
+        conn.close()
+
+        print(f"🌍 Updated timezone to: {timezone}", flush=True)
+        return jsonify({"success": True, "timezone": timezone})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/simplefin/sync-now', methods=['POST'])
 def api_simplefin_sync_now():
     """Manually trigger SimpleFin sync for all accounts"""
@@ -3957,11 +4125,12 @@ def api_simplefin_sync_now():
         global _last_simplefin_sync
         synced_count = 0
 
-        from datetime import datetime, timezone
-        now_utc = datetime.now(timezone.utc)
-        start_timestamp = int(datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc).timestamp())
-        end_year, end_month = (now_utc.year + 1, 1) if now_utc.month == 12 else (now_utc.year, now_utc.month + 1)
-        end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=timezone.utc).timestamp())
+        from datetime import datetime
+        tz = get_configured_timezone()
+        now_local = datetime.now(tz) if tz else datetime.now()
+        start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
+        end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
+        end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
         params = [
             ('start-date', start_timestamp),
             ('end-date', end_timestamp),

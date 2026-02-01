@@ -288,7 +288,19 @@
                         </button>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center;">
+                    <div class="sync-settings-grid" style="display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center;">
+                        <label for="timezone-select" style="font-weight: 500; color: var(--text-dark);">Timezone:</label>
+                        <select id="timezone-select" onchange="updateTimezone()" style="padding: 10px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; cursor: pointer; background: var(--bg-input); color: var(--text-dark);">
+                            <option value="America/New_York">Eastern Time (ET)</option>
+                            <option value="America/Chicago">Central Time (CT)</option>
+                            <option value="America/Denver" selected>Mountain Time (MT)</option>
+                            <option value="America/Phoenix">Arizona Time (MST)</option>
+                            <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                            <option value="America/Anchorage">Alaska Time (AKT)</option>
+                            <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+
                         <label for="sync-schedule-select" style="font-weight: 500; color: var(--text-dark);">Sync Schedule:</label>
                         <select id="sync-schedule-select" onchange="updateSyncSchedule()" style="padding: 10px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; cursor: pointer; background: var(--bg-input); color: var(--text-dark);">
                             <option value="morning">Morning only (6:00 AM)</option>
