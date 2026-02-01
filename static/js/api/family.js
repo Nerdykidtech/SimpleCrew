@@ -5,33 +5,228 @@
  * @requires state.js (familyDataStore, cardColors)
  */
 
+// Store currently selected child for detail view
+let selectedChildData = null;
+
 /**
- * Load family members list
+ * Load family members list (kids only)
  */
 function loadFamily() {
     fetch('/api/family').then(res => res.json()).then(data => {
         if(data.error) return;
-        familyDataStore = [...data.children, ...data.parents];
+        familyDataStore = data.children;
         const container = document.getElementById('family-content');
-        let html = '';
-        if(data.children.length > 0) {
-            html += `<div class="family-section-title">Children</div><div class="family-grid">`;
-            data.children.forEach((child, index) => {
-                const stripColor = cardColors[child.color] || '#CCC';
-                html += `<div class="family-card" onclick="openFamilyDetail('child', ${index})"><div class="color-strip" style="background:${stripColor}"></div><img src="${child.image}" class="profile-img"><div class="family-name">${child.name}</div><div class="family-role">Child</div><div class="family-balance">${fmt(child.balance)}</div></div>`;
-            });
-            html += `</div>`;
+
+        if(data.children.length === 0) {
+            container.innerHTML = `
+                <div class="family-empty">
+                    <div class="family-empty-icon">👨‍👩‍👧‍👦</div>
+                    <div class="family-empty-title">No Kids Added Yet</div>
+                    <div class="family-empty-text">Add children to your Crew account to manage their spending and cards.</div>
+                </div>
+            `;
+            return;
         }
-        if(data.parents.length > 0) {
-            html += `<div class="family-section-title">Parents</div><div class="family-grid">`;
-            data.parents.forEach((parent, index) => {
-                const stripColor = cardColors[parent.color] || '#CCC';
-                html += `<div class="family-card" style="cursor:default"><div class="color-strip" style="background:${stripColor}"></div><img src="${parent.image}" class="profile-img"><div class="family-name">${parent.name}</div><div class="family-role">Parent</div></div>`;
-            });
-            html += `</div>`;
-        }
+
+        let html = '<div class="family-grid">';
+        data.children.forEach((child, index) => {
+            const stripColor = cardColors[child.color] || '#CCC';
+            const age = calculateAge(child.dob);
+            html += `
+                <div class="family-card" onclick="openChildDetail(${index})">
+                    <div class="color-strip" style="background:${stripColor}"></div>
+                    <img src="${child.image}" class="profile-img">
+                    <div class="family-name">${child.name}</div>
+                    <div class="family-age">${age} years old</div>
+                    <div class="family-balance">${fmt(child.balance)}</div>
+                    <div class="family-allowance">${child.allowance}</div>
+                </div>
+            `;
+        });
+        html += '</div>';
         container.innerHTML = html;
     });
+}
+
+/**
+ * Calculate age from date of birth
+ */
+function calculateAge(dob) {
+    if (!dob) return '?';
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age;
+}
+
+/**
+ * Open child detail view
+ */
+function openChildDetail(index) {
+    const child = familyDataStore[index];
+    if (!child) return;
+
+    selectedChildData = child;
+    const container = document.getElementById('family-content');
+    const stripColor = cardColors[child.color] || '#CCC';
+    const age = calculateAge(child.dob);
+
+    container.innerHTML = `
+        <div class="child-detail-view">
+            <div class="child-detail-header">
+                <button class="back-btn" onclick="loadFamily()">← Back</button>
+            </div>
+
+            <div class="child-profile-card">
+                <div class="child-profile-strip" style="background: ${stripColor}"></div>
+                <div class="child-profile-content">
+                    <img src="${child.image}" class="child-profile-img">
+                    <div class="child-profile-info">
+                        <div class="child-profile-name">${child.name}</div>
+                        <div class="child-profile-age">${age} years old</div>
+                    </div>
+                    <div class="child-profile-balance">
+                        <div class="child-balance-amount">${fmt(child.balance)}</div>
+                        <div class="child-balance-label">Checking Balance</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="child-detail-tabs">
+                <button class="child-tab active" onclick="switchChildTab('activity', this)">Activity</button>
+                <button class="child-tab" onclick="switchChildTab('cards', this)">Cards</button>
+                <button class="child-tab" onclick="switchChildTab('settings', this)">Settings</button>
+            </div>
+
+            <div class="child-detail-content" id="child-detail-content">
+                <div style="text-align:center; padding:30px; color:var(--text-muted);">Loading...</div>
+            </div>
+        </div>
+    `;
+
+    // Load activity by default
+    loadChildActivity(child.id);
+}
+
+/**
+ * Switch between child detail tabs
+ */
+function switchChildTab(tab, btnEl) {
+    // Update active tab button
+    document.querySelectorAll('.child-tab').forEach(btn => btn.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    const content = document.getElementById('child-detail-content');
+    content.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Loading...</div>';
+
+    switch(tab) {
+        case 'activity':
+            loadChildActivity(selectedChildData.id);
+            break;
+        case 'cards':
+            loadChildCards(selectedChildData.id);
+            break;
+        case 'settings':
+            loadChildSettings(selectedChildData);
+            break;
+    }
+}
+
+/**
+ * Load child's recent activity
+ */
+function loadChildActivity(childId) {
+    const content = document.getElementById('child-detail-content');
+
+    // For now, show placeholder - we'll need to add an API endpoint for child transactions
+    content.innerHTML = `
+        <div class="child-activity-list">
+            <div class="child-activity-empty">
+                <div style="font-size: 32px; margin-bottom: 10px;">📋</div>
+                <div>Activity coming soon</div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Load child's cards
+ */
+function loadChildCards(childId) {
+    const content = document.getElementById('child-detail-content');
+
+    fetch('/api/cards').then(res => res.json()).then(data => {
+        if (data.error) {
+            content.innerHTML = `<div style="color:red; padding:20px;">${data.error}</div>`;
+            return;
+        }
+
+        // Filter virtual cards belonging to this child
+        const childCards = (data.virtualCards || []).filter(card =>
+            card.userId === childId && card.status === 'ACTIVATED'
+        );
+
+        if (childCards.length === 0) {
+            content.innerHTML = `
+                <div class="child-cards-empty">
+                    <div style="font-size: 32px; margin-bottom: 10px;">💳</div>
+                    <div>No active cards</div>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '<div class="child-cards-list">';
+        childCards.forEach(card => {
+            const bg = cardColors[card.color] || '#333';
+            const statusClass = card.frozenStatus === 'FROZEN' ? 'frozen' : '';
+            html += `
+                <div class="child-card-item ${statusClass}">
+                    <div class="child-card-visual" style="background: linear-gradient(135deg, ${bg} 0%, ${adjustColor(bg, -30)} 100%);">
+                        <div class="child-card-chip"></div>
+                        <div class="child-card-number">•••• ${card.last4}</div>
+                    </div>
+                    <div class="child-card-info">
+                        <div class="child-card-name">${card.name}</div>
+                        <div class="child-card-type">${card.type}${card.frozenStatus === 'FROZEN' ? ' • Frozen' : ''}</div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        content.innerHTML = html;
+    });
+}
+
+/**
+ * Load child's settings
+ */
+function loadChildSettings(child) {
+    const content = document.getElementById('child-detail-content');
+    const age = calculateAge(child.dob);
+
+    content.innerHTML = `
+        <div class="child-settings">
+            <div class="child-setting-group">
+                <div class="child-setting-label">Allowance</div>
+                <div class="child-setting-value">${child.allowance}</div>
+            </div>
+            <div class="child-setting-group">
+                <div class="child-setting-label">Age</div>
+                <div class="child-setting-value">${age} years old</div>
+            </div>
+            <div class="child-setting-group">
+                <div class="child-setting-label">Card Color</div>
+                <div class="child-setting-value">
+                    <span style="color:${cardColors[child.color] || '#999'}">●</span> ${child.color || 'Default'}
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 /**

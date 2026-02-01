@@ -493,15 +493,70 @@
 
 
         /* FAMILY TAB */
-        .family-section-title { font-size: 14px; font-weight: 700; color: var(--text-muted); margin: 25px 0 15px 0; text-transform: uppercase; letter-spacing: 0.5px; }
-        .family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
-        .family-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; position: relative; overflow: hidden; }
-        .family-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px var(--shadow-color); }
-        .color-strip { position: absolute; top: 0; left: 0; right: 0; height: 6px; }
-        .profile-img { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; margin-bottom: 15px; border: 2px solid var(--bg-card); box-shadow: 0 2px 8px var(--shadow-strong); }
-        .family-name { font-size: 16px; font-weight: 700; color: var(--text-dark); margin-bottom: 5px; }
-        .family-role { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-        .family-balance { font-size: 24px; font-weight: 600; color: var(--text-dark); margin-top: 15px; }
+        .family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .family-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px 20px; text-align: center; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; position: relative; overflow: hidden; }
+        .family-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px var(--shadow-strong); }
+        .color-strip { position: absolute; top: 0; left: 0; right: 0; height: 5px; }
+        .profile-img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 16px; border: 3px solid var(--bg-card); box-shadow: 0 4px 12px var(--shadow-strong); }
+        .family-name { font-size: 18px; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+        .family-age { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+        .family-balance { font-size: 28px; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+        .family-allowance { font-size: 13px; color: var(--text-light); }
+
+        /* Family Empty State */
+        .family-empty { text-align: center; padding: 60px 20px; }
+        .family-empty-icon { font-size: 48px; margin-bottom: 16px; }
+        .family-empty-title { font-size: 20px; font-weight: 700; color: var(--text-dark); margin-bottom: 8px; }
+        .family-empty-text { font-size: 14px; color: var(--text-muted); max-width: 300px; margin: 0 auto; }
+
+        /* Child Detail View */
+        .child-detail-view { max-width: 600px; margin: 0 auto; }
+        .child-detail-header { margin-bottom: 20px; }
+        .back-btn { background: none; border: none; color: var(--link-blue); font-size: 15px; font-weight: 500; cursor: pointer; padding: 8px 0; font-family: inherit; }
+        .back-btn:hover { text-decoration: underline; }
+
+        .child-profile-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; margin-bottom: 24px; }
+        .child-profile-strip { height: 6px; }
+        .child-profile-content { display: flex; align-items: center; padding: 24px; gap: 20px; }
+        .child-profile-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid var(--bg-body); box-shadow: 0 2px 8px var(--shadow-color); }
+        .child-profile-info { flex: 1; }
+        .child-profile-name { font-size: 22px; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+        .child-profile-age { font-size: 14px; color: var(--text-muted); }
+        .child-profile-balance { text-align: right; }
+        .child-balance-amount { font-size: 28px; font-weight: 700; color: var(--text-dark); }
+        .child-balance-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+        /* Child Detail Tabs */
+        .child-detail-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
+        .child-tab { background: none; border: none; padding: 10px 20px; font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 8px; transition: all 0.15s; font-family: inherit; }
+        .child-tab:hover { background: var(--bg-elevated); color: var(--text-dark); }
+        .child-tab.active { background: var(--simple-blue); color: white; }
+
+        /* Child Detail Content */
+        .child-detail-content { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; min-height: 200px; }
+
+        /* Child Activity */
+        .child-activity-list { padding: 20px; }
+        .child-activity-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+
+        /* Child Cards */
+        .child-cards-list { padding: 16px; display: grid; gap: 16px; }
+        .child-cards-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+        .child-card-item { display: flex; align-items: center; gap: 16px; padding: 12px; border-radius: 8px; background: var(--bg-elevated); }
+        .child-card-item.frozen { opacity: 0.6; }
+        .child-card-visual { width: 80px; height: 50px; border-radius: 6px; position: relative; box-shadow: 0 2px 8px var(--shadow-strong); }
+        .child-card-chip { position: absolute; top: 12px; left: 10px; width: 14px; height: 10px; background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%); border-radius: 2px; }
+        .child-card-number { position: absolute; bottom: 8px; left: 10px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.9); letter-spacing: 1px; }
+        .child-card-info { flex: 1; }
+        .child-card-name { font-size: 15px; font-weight: 600; color: var(--text-dark); }
+        .child-card-type { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        /* Child Settings */
+        .child-settings { padding: 20px; }
+        .child-setting-group { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border-color); }
+        .child-setting-group:last-child { border-bottom: none; }
+        .child-setting-label { font-size: 14px; color: var(--text-muted); }
+        .child-setting-value { font-size: 15px; font-weight: 600; color: var(--text-dark); }
 
         /* CARDS TAB */
         .card-row { display: flex; align-items: center; padding: 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-card); transition: background 0.1s; }
