@@ -120,7 +120,7 @@ SimpleCrew is a comprehensive financial dashboard that connects to [Crew Banking
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/SimpleCrew.git
+git clone https://github.com/Nerdykidtech/SimpleCrew.git
 cd SimpleCrew
 
 # Start the application
@@ -134,7 +134,7 @@ open http://localhost:8080
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/SimpleCrew.git
+git clone https://github.com/Nerdykidtech/SimpleCrew.git
 cd SimpleCrew
 
 # Install dependencies
