@@ -453,7 +453,8 @@ function openGoalDetailList(index) {
         </div>
     `;
 
-    // Fetch transactions directly for this pocket
+
+// Fetch transactions directly for this pocket
     fetch(`/api/pocket-transactions/${encodeURIComponent(g.id)}?pageSize=50`)
         .then(res => res.json())
         .then(data => {
@@ -477,16 +478,26 @@ function openGoalDetailList(index) {
 
             let html = '';
             data.transactions.forEach(tx => {
-                const date = tx.occurredAt
-                    ? new Date(tx.occurredAt).toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})
-                    : '';
+                // 1. Parse Date and Time separately
+                let dateStr = '';
+                let timeStr = '';
+                
+                if (tx.occurredAt) {
+                    const d = new Date(tx.occurredAt);
+                    dateStr = d.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+                    timeStr = d.toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'});
+                }
+
+                // 2. Get Memo
+                const memoText = tx.memo || tx.externalMemo || '';
+
                 const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
                 const sign = tx.amount > 0 ? '+' : '';
 
                 // Determine the display title
                 let displayTitle = tx.title || tx.matchingName || 'Transaction';
 
-                // Add transfer type indicator if it's a transfer
+                // Add transfer type indicator
                 let typeIndicator = '';
                 if (tx.transferType === 'SUBACCOUNT') {
                     typeIndicator = '<span class="pocket-tx-type">Transfer</span>';
@@ -494,11 +505,13 @@ function openGoalDetailList(index) {
                     typeIndicator = '<span class="pocket-tx-type card">Card</span>';
                 }
 
+                // 3. Render HTML with Memo and Time
                 html += `
                 <div class="pocket-tx-row">
                     <div class="pocket-tx-left">
                         <div class="pocket-tx-title">${displayTitle}${typeIndicator}</div>
-                        <div class="pocket-tx-date">${date}</div>
+                        ${memoText ? `<div style="font-size:11px; color:#666; font-style:italic; margin-top:2px;">${memoText}</div>` : ''}
+                        <div class="pocket-tx-date">${dateStr} • ${timeStr}</div>
                     </div>
                     <div class="pocket-tx-amt ${amtClass}">${sign}${fmt(Math.abs(tx.amount))}</div>
                 </div>
