@@ -5,35 +5,91 @@
  * @requires state.js (goalsDataStore, cardColors)
  */
 
+// Store family subaccounts for card spend dropdowns
+let familySubaccountsData = null;
+
+/**
+ * Build options HTML for spend dropdown
+ * Only shows pockets belonging to the same owner as the currently selected pocket
+ * @param {string} selectedId - Currently selected pocket ID
+ * @returns {string} HTML string of option elements
+ */
+function buildSpendOptionsHtml(selectedId) {
+    let html = '';
+
+    if (familySubaccountsData && familySubaccountsData.groups) {
+        // Find which group the selected pocket belongs to
+        let ownerGroup = null;
+        for (const group of familySubaccountsData.groups) {
+            for (const pocket of group.pockets) {
+                if (pocket.id === selectedId) {
+                    ownerGroup = group;
+                    break;
+                }
+            }
+            if (ownerGroup) break;
+        }
+
+        // If no owner found (e.g., "Checking" string), default to main account
+        if (!ownerGroup) {
+            ownerGroup = familySubaccountsData.groups.find(g => g.ownerType === 'main');
+        }
+
+        // Only show pockets from the same owner
+        if (ownerGroup) {
+            ownerGroup.pockets.forEach(pocket => {
+                // Map "Checking" display to "Safe-to-Spend"
+                const displayName = pocket.name === 'Checking' ? 'Safe-to-Spend' : pocket.name;
+                const isSelected = pocket.id === selectedId ? 'selected' : '';
+                html += `<option value="${pocket.id}" ${isSelected}>${displayName}</option>`;
+            });
+        }
+    } else {
+        // Fallback to goalsDataStore if family data not loaded (main account only)
+        html = `<option value="Checking" ${selectedId === 'Checking' ? 'selected' : ''}>Safe-to-Spend</option>`;
+        if (typeof goalsDataStore !== 'undefined') {
+            goalsDataStore.forEach(goal => {
+                const isSelected = goal.id === selectedId ? 'selected' : '';
+                html += `<option value="${goal.id}" ${isSelected}>${goal.name}</option>`;
+            });
+        }
+    }
+
+    return html;
+}
+
 /**
  * Load physical and virtual cards from the API
  * @param {boolean} forceRefresh - If true, bypass cache and force refresh
  */
 function loadCards(forceRefresh = false) {
-    const url = forceRefresh ? '/api/cards?refresh=true' : '/api/cards';
+    const cardsUrl = forceRefresh ? '/api/cards?refresh=true' : '/api/cards';
 
-    fetch(url).then(res => res.json()).then(data => {
+    // Fetch both cards and family subaccounts in parallel
+    Promise.all([
+        fetch(cardsUrl).then(res => res.json()),
+        fetch('/api/family-subaccounts').then(res => res.json())
+    ]).then(([cardsData, familyData]) => {
         const container = document.getElementById('cards-content');
-        if(data.error) {
-            container.innerHTML = `<div style="text-align:center; padding:20px; color:red;">${data.error}</div>`;
+
+        if(cardsData.error) {
+            container.innerHTML = `<div style="text-align:center; padding:20px; color:red;">${cardsData.error}</div>`;
             return;
+        }
+
+        // Store family subaccounts for dropdown building
+        if (!familyData.error) {
+            familySubaccountsData = familyData;
         }
 
         let html = '';
 
         // Physical Cards Section
-        if(data.cards && data.cards.length > 0) {
+        if(cardsData.cards && cardsData.cards.length > 0) {
             html += '<div class="cards-section-title">Physical Cards</div>';
-            data.cards.forEach(card => {
+            cardsData.cards.forEach(card => {
                 const bg = cardColors[card.color] || '#333';
-
-                let optionsHtml = `<option value="Checking" ${card.current_spend_id === 'Checking' ? 'selected' : ''}>Safe-to-Spend</option>`;
-                if (typeof goalsDataStore !== 'undefined') {
-                    goalsDataStore.forEach(goal => {
-                        const isSelected = card.current_spend_id === goal.id ? 'selected' : '';
-                        optionsHtml += `<option value="${goal.id}" ${isSelected}>${goal.name}</option>`;
-                    });
-                }
+                const optionsHtml = buildSpendOptionsHtml(card.current_spend_id);
 
                 html += `
                 <div class="card-row">
@@ -55,7 +111,7 @@ function loadCards(forceRefresh = false) {
         }
 
         // Virtual Cards Section (only active cards)
-        const activeVirtual = (data.virtualCards || []).filter(c => c.status === 'ACTIVATED');
+        const activeVirtual = (cardsData.virtualCards || []).filter(c => c.status === 'ACTIVATED');
         if(activeVirtual.length > 0) {
             html += '<div class="cards-section-title" style="margin-top: 20px;">Virtual Cards</div>';
             activeVirtual.forEach(card => {
@@ -64,7 +120,7 @@ function loadCards(forceRefresh = false) {
         }
 
         // Empty state
-        if((!data.cards || data.cards.length === 0) && (!data.virtualCards || data.virtualCards.length === 0)) {
+        if((!cardsData.cards || cardsData.cards.length === 0) && (!cardsData.virtualCards || cardsData.virtualCards.length === 0)) {
             html = '<div style="text-align:center; padding:40px; color:#999;">No cards found.</div>';
         }
 
@@ -106,14 +162,8 @@ function renderVirtualCard(card) {
             <span class="attached-bill-name">${card.attachedBillName}</span>
         `;
     } else {
-        // Build spend from dropdown options
-        let optionsHtml = `<option value="Checking" ${card.current_spend_id === 'Checking' ? 'selected' : ''}>Safe-to-Spend</option>`;
-        if (typeof goalsDataStore !== 'undefined') {
-            goalsDataStore.forEach(goal => {
-                const isSelected = card.current_spend_id === goal.id ? 'selected' : '';
-                optionsHtml += `<option value="${goal.id}" ${isSelected}>${goal.name}</option>`;
-            });
-        }
+        // Build spend from dropdown options with grouped family pockets
+        const optionsHtml = buildSpendOptionsHtml(card.current_spend_id);
         spendControlsHtml = `
             <span class="spend-label">Spend From:</span>
             <select class="modern-select"

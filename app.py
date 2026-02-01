@@ -801,7 +801,7 @@ def get_monthly_trends():
         return {"error": str(e)}
 
 @cached("subaccounts")
-def get_subaccounts_list():
+def get_subaccounts_list(force_refresh=False):
     try:
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
@@ -814,6 +814,93 @@ def get_subaccounts_list():
                 balance = sub.get("overallBalance", 0) / 100.0
                 subs.append({"id": sub.get("id"), "name": sub.get("name"), "balance": balance})
         return {"subaccounts": subs}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_family_subaccounts():
+    """Get all family subaccounts including children's pockets, grouped by owner"""
+    try:
+        headers = get_crew_headers()
+        if not headers: return {"error": "Credentials not found"}
+
+        query_string = """
+        query FamilySubaccounts {
+            currentUser {
+                id
+                displayedFirstName
+                accounts {
+                    subaccounts {
+                        id
+                        displayName
+                        clearedBalance
+                    }
+                }
+                family {
+                    children {
+                        id
+                        displayedFirstName
+                        spendAccount {
+                            subaccounts {
+                                id
+                                displayName
+                                clearedBalance
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        response = requests.post(URL, headers=headers, json={"operationName": "FamilySubaccounts", "query": query_string})
+        data = response.json()
+
+        current_user = data.get("data", {}).get("currentUser", {})
+        family = current_user.get("family", {})
+
+        result = {
+            "groups": []
+        }
+
+        # Main account pockets
+        main_pockets = []
+        for account in current_user.get("accounts", []):
+            for sub in account.get("subaccounts", []):
+                balance = sub.get("clearedBalance", 0) / 100.0
+                main_pockets.append({
+                    "id": sub.get("id"),
+                    "name": sub.get("displayName"),
+                    "balance": balance
+                })
+
+        if main_pockets:
+            result["groups"].append({
+                "owner": "Main Account",
+                "ownerType": "main",
+                "pockets": main_pockets
+            })
+
+        # Children's pockets
+        for child in family.get("children", []):
+            child_name = child.get("displayedFirstName", "Child")
+            child_pockets = []
+            spend_account = child.get("spendAccount", {})
+            for sub in spend_account.get("subaccounts", []):
+                balance = sub.get("clearedBalance", 0) / 100.0
+                child_pockets.append({
+                    "id": sub.get("id"),
+                    "name": sub.get("displayName"),
+                    "balance": balance
+                })
+
+            if child_pockets:
+                result["groups"].append({
+                    "owner": child_name,
+                    "ownerType": "child",
+                    "pockets": child_pockets
+                })
+
+        return result
     except Exception as e:
         return {"error": str(e)}
 
@@ -1056,6 +1143,10 @@ def get_cards_data():
             displayName
             belongsToCurrentUser
             clearedBalance
+            owner {
+              displayName
+              __typename
+            }
             __typename
           }
           user {
@@ -1118,6 +1209,20 @@ def get_cards_data():
                         if bills and len(bills) > 0:
                             attached_bill_name = bills[0].get("name")
 
+                    # Build linked subaccount display name with owner if not current user's
+                    linked_subaccount_display = None
+                    if linked_subaccount:
+                        display_name = linked_subaccount.get("displayName")
+                        belongs_to_current = linked_subaccount.get("belongsToCurrentUser", True)
+                        owner = linked_subaccount.get("owner", {})
+                        owner_name = owner.get("displayName") if owner else None
+
+                        if belongs_to_current or not owner_name:
+                            linked_subaccount_display = display_name
+                        else:
+                            # Show owner's name for child pockets
+                            linked_subaccount_display = f"{owner_name}'s {display_name}"
+
                     virtual_cards.append({
                         "id": vcard.get("id"),
                         "userId": user_data.get("id"),
@@ -1131,7 +1236,7 @@ def get_cards_data():
                         "monthlyLimit": monthly_limit,
                         "remaining": remaining,
                         "current_spend_id": spend_source_id,
-                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None,
+                        "linkedSubaccount": linked_subaccount_display,
                         "isAttachedToBill": is_attached_to_bill,
                         "attachedBillName": attached_bill_name
                     })
@@ -1166,6 +1271,20 @@ def get_cards_data():
                         if bills and len(bills) > 0:
                             attached_bill_name = bills[0].get("name")
 
+                    # Build linked subaccount display name with owner if not current user's
+                    linked_subaccount_display = None
+                    if linked_subaccount:
+                        display_name = linked_subaccount.get("displayName")
+                        belongs_to_current = linked_subaccount.get("belongsToCurrentUser", True)
+                        owner = linked_subaccount.get("owner", {})
+                        owner_name = owner.get("displayName") if owner else None
+
+                        if belongs_to_current or not owner_name:
+                            linked_subaccount_display = display_name
+                        else:
+                            # Show owner's name for child pockets
+                            linked_subaccount_display = f"{owner_name}'s {display_name}"
+
                     virtual_cards.append({
                         "id": vcard.get("id"),
                         "userId": user_data.get("id"),
@@ -1179,7 +1298,7 @@ def get_cards_data():
                         "monthlyLimit": monthly_limit,
                         "remaining": remaining,
                         "current_spend_id": spend_source_id,
-                        "linkedSubaccount": vcard.get("subaccount", {}).get("displayName") if vcard.get("subaccount") else None,
+                        "linkedSubaccount": linked_subaccount_display,
                         "isAttachedToBill": is_attached_to_bill,
                         "attachedBillName": attached_bill_name
                     })
@@ -2013,6 +2132,10 @@ def api_trends(): return jsonify(get_monthly_trends())
 def api_subaccounts():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_subaccounts_list(force_refresh=refresh))
+
+@app.route('/api/family-subaccounts')
+def api_family_subaccounts():
+    return jsonify(get_family_subaccounts())
 
 @app.route('/api/move-money', methods=['POST'])
 def api_move_money():

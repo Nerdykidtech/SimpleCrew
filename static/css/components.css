@@ -293,6 +293,21 @@
         .modern-select:hover { border-color: var(--text-muted); }
         .modern-select:focus { border-color: var(--simple-blue); outline: none; }
 
+        .modern-select optgroup {
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-light);
+            background: var(--bg-card);
+            padding: 8px 0 4px 0;
+        }
+
+        .modern-select option {
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--text-dark);
+            padding: 8px 12px;
+        }
+
         .type-badge {
             background: #E3F2FD;
             color: #1565C0;
