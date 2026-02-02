@@ -3144,10 +3144,10 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
 
         print(f"✅ SimpleFin: Found {len(transactions)} total transactions for account {account_id}")
 
-        # Get list of already seen transaction IDs
-        c.execute("SELECT transaction_id FROM credit_card_transactions WHERE account_id = ?", (account_id,))
-        seen_ids = {row[0] for row in c.fetchall()}
-        print(f"  Already have {len(seen_ids)} transactions in database")
+        # Get list of already seen transaction IDs and their pending status
+        c.execute("SELECT transaction_id, is_pending FROM credit_card_transactions WHERE account_id = ?", (account_id,))
+        existing_txs = {row[0]: row[1] for row in c.fetchall()}
+        print(f"  Already have {len(existing_txs)} transactions in database")
 
         new_transactions = []
         payment_transactions = []  # Track payments to move money back from pocket
@@ -3155,8 +3155,6 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
             tx_id = tx.get("id")
             if not tx_id:
                 print(f"  ⚠️ Skipping transaction with no ID: {tx}")
-                continue
-            if tx_id in seen_ids:
                 continue
 
             # SimpleFin amounts may be strings, convert to float
@@ -3190,14 +3188,31 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                 except:
                     date_str = str(transacted)
 
+            # Check if this transaction already exists
+            if tx_id in existing_txs:
+                # Transaction exists - check if it was pending and now posted
+                was_pending = existing_txs[tx_id]
+                if was_pending and not pending:
+                    # Transaction has posted! Update it with final date and clear pending flag
+                    print(f"  📌 Transaction posted: ${amount} - {description} (ID: {tx_id})")
+                    c.execute("""UPDATE credit_card_transactions
+                                SET is_pending = 0, date = ?
+                                WHERE transaction_id = ? AND account_id = ?""",
+                            (date_str, tx_id, account_id))
+                    if c.rowcount > 0:
+                        print(f"  ✅ Updated transaction {tx_id} to posted status")
+                # Skip this transaction - it's already been processed
+                continue
+
+            # New transaction - insert it
             if is_payment:
-                print(f"  💳 Payment received: ${amount} - {description} (ID: {tx_id})")
+                print(f"  💳 Payment received: ${amount} - {description} (ID: {tx_id}, pending={pending})")
                 payment_transactions.append(tx)
             else:
-                print(f"  💳 New transaction: ${amount} - {description} (ID: {tx_id})")
+                print(f"  💳 New transaction: ${amount} - {description} (ID: {tx_id}, pending={pending})")
                 new_transactions.append(tx)
 
-            c.execute("""INSERT OR IGNORE INTO credit_card_transactions
+            c.execute("""INSERT INTO credit_card_transactions
                          (transaction_id, account_id, amount, date, merchant, description, is_pending)
                          VALUES (?, ?, ?, ?, ?, ?, ?)""",
                      (tx_id, account_id, amount, date_str, "", description, 1 if pending else 0))
@@ -3205,7 +3220,7 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
             if c.rowcount > 0:
                 print(f"  ✅ Inserted transaction {tx_id}")
             else:
-                print(f"  ⚠️ Transaction {tx_id} was not inserted (already exists or error)")
+                print(f"  ⚠️ Transaction {tx_id} was not inserted (error)")
 
         conn.commit()
         print(f"✅ Committed {len(new_transactions)} new transactions to database")
