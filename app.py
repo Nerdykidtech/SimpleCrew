@@ -2104,8 +2104,14 @@ def api_transactions():
                 continue
             if max_amt and abs(amount) > float(max_amt):
                 continue
-            if q and q.lower() not in (row[3] or "").lower() and q.lower() not in (row[4] or "").lower():
-                continue
+            # Search in merchant, description, and account name
+            if q:
+                search_term = q.lower()
+                merchant = (row[3] or "").lower()
+                description = (row[4] or "").lower()
+                account_name = (row[7] or "").lower()
+                if search_term not in merchant and search_term not in description and search_term not in account_name:
+                    continue
 
             # Format as Crew transaction format
             credit_card_txs.append({
@@ -2122,13 +2128,16 @@ def api_transactions():
                 "accountName": row[7] or "Credit Card"  # Add account name
             })
 
-        # Merge and sort by date
+        # Merge and sort by pending status first, then by date
         if result["transactions"]:
             all_txs = result["transactions"] + credit_card_txs
+            # Sort by: pending first (True > False), then by date (newest first)
             # Handle None dates by treating them as empty strings for sorting
-            all_txs.sort(key=lambda x: x.get("date") or "", reverse=True)
+            all_txs.sort(key=lambda x: (not x.get("isPending", False), x.get("date") or ""), reverse=True)
             result["transactions"] = all_txs
         elif credit_card_txs:
+            # Sort credit card transactions only
+            credit_card_txs.sort(key=lambda x: (not x.get("isPending", False), x.get("date") or ""), reverse=True)
             result["transactions"] = credit_card_txs
 
     except Exception as e:
@@ -2909,12 +2918,12 @@ def check_credit_card_transactions():
         # Batch fetch SimpleFin data for all due accounts in a single request
         simplefin_data = None
         if simplefin_to_sync:
-            from datetime import datetime
+            from datetime import datetime, timedelta
             tz = get_configured_timezone()
             now_local = datetime.now(tz) if tz else datetime.now()
-            start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
-            end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
-            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
+            start_date = now_local - timedelta(days=30)
+            start_timestamp = int(start_date.timestamp())
+            end_timestamp = int(now_local.timestamp())
             params = [
                 ('start-date', start_timestamp),
                 ('end-date', end_timestamp),
@@ -3083,13 +3092,13 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         else:
             print(f"🔍 check_simplefin_transactions: Fetching from {access_url[:30]}... for account {account_id} (initial={is_initial_sync})", flush=True)
 
-            # Calculate date range: current calendar month (using configured timezone)
-            from datetime import datetime
+            # Calculate date range: last 30 days (using configured timezone)
+            from datetime import datetime, timedelta
             tz = get_configured_timezone()
             now_local = datetime.now(tz) if tz else datetime.now()
-            start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
-            end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
-            end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
+            start_date = now_local - timedelta(days=30)
+            start_timestamp = int(start_date.timestamp())
+            end_timestamp = int(now_local.timestamp())
 
             # Fetch account data from SimpleFin, filtered to just this account
             params = {
@@ -3700,12 +3709,12 @@ def api_simplefin_create_pocket_with_balance():
         current_balance_value = 0
         if access_url:
             try:
-                from datetime import datetime
+                from datetime import datetime, timedelta
                 tz = get_configured_timezone()
                 now_local = datetime.now(tz) if tz else datetime.now()
-                start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
-                end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
-                end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
+                start_date = now_local - timedelta(days=30)
+                start_timestamp = int(start_date.timestamp())
+                end_timestamp = int(now_local.timestamp())
 
                 params = {
                     'start-date': start_timestamp,
@@ -4284,12 +4293,12 @@ def api_simplefin_sync_now():
         global _last_simplefin_sync
         synced_count = 0
 
-        from datetime import datetime
+        from datetime import datetime, timedelta
         tz = get_configured_timezone()
         now_local = datetime.now(tz) if tz else datetime.now()
-        start_timestamp = int(datetime(now_local.year, now_local.month, 1, tzinfo=tz).timestamp())
-        end_year, end_month = (now_local.year + 1, 1) if now_local.month == 12 else (now_local.year, now_local.month + 1)
-        end_timestamp = int(datetime(end_year, end_month, 1, tzinfo=tz).timestamp())
+        start_date = now_local - timedelta(days=30)
+        start_timestamp = int(start_date.timestamp())
+        end_timestamp = int(now_local.timestamp())
         params = [
             ('start-date', start_timestamp),
             ('end-date', end_timestamp),
@@ -4299,6 +4308,7 @@ def api_simplefin_sync_now():
             params.append(('account', account_id))
 
         print(f"📡 Manual sync: batch fetching {len(accounts)} SimpleFin account(s) in one request", flush=True)
+        print(f"📅 Date range: {start_timestamp} to {end_timestamp} (30 days)", flush=True)
         response = requests.get(f"{access_url}/accounts", params=params, timeout=60)
         if response.status_code != 200:
             print(f"❌ SimpleFin API error: {response.status_code} - {response.text}", flush=True)
@@ -4310,6 +4320,8 @@ def api_simplefin_sync_now():
 
         simplefin_data = response.json()
         print(f"✅ SimpleFin batch fetch returned {len(simplefin_data.get('accounts', []))} accounts", flush=True)
+        for acc in simplefin_data.get('accounts', []):
+            print(f"  Account {acc.get('id')}: {len(acc.get('transactions', []))} transactions", flush=True)
 
         for account_id, pocket_id in accounts:
             try:

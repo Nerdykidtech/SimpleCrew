@@ -106,7 +106,7 @@ function renderAccountCards(accounts) {
                             <button onclick="syncAccountBalance('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
                                 🔄 Sync
                             </button>
-                            <button onclick="viewAccountTransactions('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
+                            <button onclick="viewAccountTransactions('${account.accountId}', '${account.accountName.replace(/'/g, "\\'")}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
                                 📋 Transactions
                             </button>
                             <button onclick="removeAccount('${account.accountId}')" class="btn btn-outline" style="background: var(--alert-red); color: white; border-color: var(--alert-red); padding: 8px 12px;" title="Remove account">

@@ -1087,8 +1087,9 @@ function removeAccount(accountId) {
 /**
  * View transactions for a specific credit card account
  * @param {string} accountId - The account ID to view transactions for
+ * @param {string} accountName - The account name to search for
  */
-function viewAccountTransactions(accountId) {
+function viewAccountTransactions(accountId, accountName) {
     // Switch to Activity tab
     if (typeof switchTab === 'function') {
         switchTab('activity');
@@ -1100,12 +1101,12 @@ function viewAccountTransactions(accountId) {
         activityView.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // Set search filter to account ID
+    // Set search filter to account name (which appears in transaction descriptions)
     const searchInput = document.getElementById('search-input-box');
     if (searchInput) {
-        searchInput.value = accountId;
+        searchInput.value = accountName || accountId;
         if (filterState) {
-            filterState.q = accountId;
+            filterState.q = accountName || accountId;
         }
 
         // Trigger transaction reload with filter
