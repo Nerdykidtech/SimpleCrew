@@ -40,17 +40,39 @@ function reloadTx() {
 
         let html = '';
 
+        // Helper function to render a transaction row
+        const renderTxRow = (tx) => {
+            const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
+            const isCreditCard = tx.isCreditCard === true;
+            const rowClass = isCreditCard ? 'tx-row credit-card-tx' : 'tx-row';
+            const merchantInfo = isCreditCard && tx.merchant ? `<span class="tx-desc">${tx.merchant}</span>` : '';
+            const accountInfo = isCreditCard && tx.accountName ? `<span class="tx-desc" style="color: var(--simple-blue); font-weight: 500;">${tx.accountName}</span>` : '';
+
+            // Pocket tag for pocket activities
+            const pocketTag = tx.pocketName ? `<span class="tx-pocket-tag">${tx.pocketName}</span>` : '';
+
+            // Transfer indicator
+            const transferTag = tx.transferType === 'SUBACCOUNT' ? `<span class="tx-transfer-tag">Transfer</span>` : '';
+
+            // Description (for non-credit card transactions)
+            const descHtml = tx.description && !isCreditCard ? `<span class="tx-desc">${tx.description}</span>` : '';
+
+            // Memo display - only show if different from title and description
+            const memoText = tx.memo || '';
+            const isDuplicateMemo = memoText && (
+                memoText.toLowerCase() === (tx.title || '').toLowerCase() ||
+                memoText.toLowerCase() === (tx.description || '').toLowerCase()
+            );
+            const memoHtml = memoText && !isDuplicateMemo ? `<span class="tx-memo">${memoText}</span>` : '';
+
+            return `<div class="${rowClass}" onclick="openTxDetail('${tx.id}')"><div class="tx-left"><span class="tx-title">${tx.title || 'Unknown'}${pocketTag}${transferTag}</span>${accountInfo}${merchantInfo}${descHtml}${memoHtml}</div><div class="tx-amount ${amtClass}">${fmt(tx.amount)}</div></div>`;
+        };
+
         // Render pending transactions section if any exist
         if (pendingTxs.length > 0) {
             html += `<div class="tx-group-date">PENDING</div>`;
             pendingTxs.forEach(tx => {
-                const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
-                const isCreditCard = tx.isCreditCard === true;
-                const creditCardBadge = ''; // Remove badge
-                const rowClass = isCreditCard ? 'tx-row credit-card-tx' : 'tx-row';
-                const merchantInfo = isCreditCard && tx.merchant ? `<span class="tx-desc">${tx.merchant}</span>` : '';
-                const accountInfo = isCreditCard && tx.accountName ? `<span class="tx-desc" style="color: var(--simple-blue); font-weight: 500;">${tx.accountName}</span>` : '';
-                html += `<div class="${rowClass}" onclick="openTxDetail('${tx.id}')"><div class="tx-left">${creditCardBadge}<span class="tx-title">${tx.title || 'Unknown'}</span>${accountInfo}${merchantInfo}${tx.description && !isCreditCard ? `<span class="tx-desc">${tx.description}</span>` : ''}</div><div class="tx-amount ${amtClass}">${fmt(tx.amount)}</div></div>`;
+                html += renderTxRow(tx);
             });
         }
 
@@ -66,13 +88,7 @@ function reloadTx() {
         for (const [date, txs] of Object.entries(grouped)) {
             html += `<div class="tx-group-date">${date}</div>`;
             txs.forEach(tx => {
-                const amtClass = tx.amount > 0 ? 'tx-pos' : 'tx-neg';
-                const isCreditCard = tx.isCreditCard === true;
-                const creditCardBadge = ''; // Remove badge
-                const rowClass = isCreditCard ? 'tx-row credit-card-tx' : 'tx-row';
-                const merchantInfo = isCreditCard && tx.merchant ? `<span class="tx-desc">${tx.merchant}</span>` : '';
-                const accountInfo = isCreditCard && tx.accountName ? `<span class="tx-desc" style="color: var(--simple-blue); font-weight: 500;">${tx.accountName}</span>` : '';
-                html += `<div class="${rowClass}" onclick="openTxDetail('${tx.id}')"><div class="tx-left">${creditCardBadge}<span class="tx-title">${tx.title || 'Unknown'}</span>${accountInfo}${merchantInfo}${tx.description && !isCreditCard ? `<span class="tx-desc">${tx.description}</span>` : ''}</div><div class="tx-amount ${amtClass}">${fmt(tx.amount)}</div></div>`;
+                html += renderTxRow(tx);
             });
         }
         content.innerHTML = html;

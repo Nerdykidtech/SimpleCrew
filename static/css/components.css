@@ -422,6 +422,9 @@
         .tx-amount { font-weight: 600; font-size: 14px; }
         .tx-neg { color: var(--text-dark); }
         .tx-pos { color: var(--success-green); }
+        .tx-pocket-tag { display: inline-block; font-size: 10px; font-weight: 600; color: var(--simple-blue); background: rgba(102, 126, 234, 0.12); padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
+        .tx-transfer-tag { display: inline-block; font-size: 10px; font-weight: 600; color: #8E44AD; background: rgba(142, 68, 173, 0.12); padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+        .tx-memo { display: block; font-size: 11px; color: #666; font-style: italic; margin-top: 2px; }
 
         /* EXPENSES & GOALS */
         .exp-summary-bar { font-size: 13px; color: #767676; font-weight: 500; margin-bottom: 15px; text-align: right; }

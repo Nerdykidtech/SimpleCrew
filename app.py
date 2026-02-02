@@ -593,7 +593,7 @@ def get_transactions_data(search_term=None, min_date=None, max_date=None, min_am
         if not headers: return {"error": "Credentials not found"}
         account_id = get_primary_account_id()
         if not account_id: return {"error": "Could not find Checking Account ID"}
-        query_string = """ query RecentActivity($accountId: ID!, $cursor: String, $pageSize: Int = 100, $searchFilters: CashTransactionFilter) { account: node(id: $accountId) { ... on Account { id cashTransactions(first: $pageSize, after: $cursor, searchFilters: $searchFilters) { edges { node { id amount description occurredAt title type subaccount { id } } } } } } } """
+        query_string = """ query RecentActivity($accountId: ID!, $cursor: String, $pageSize: Int = 100, $searchFilters: CashTransactionFilter) { account: node(id: $accountId) { ... on Account { id cashTransactions(first: $pageSize, after: $cursor, searchFilters: $searchFilters) { edges { node { id amount description occurredAt title type memo externalMemo matchingName subaccount { id displayName isPrimary } transfer { id type } } } } } } } """
         filters = {}
         if search_term: filters["fuzzySearch"] = search_term
         variables = {"pageSize": 100, "accountId": account_id, "searchFilters": filters}
@@ -608,7 +608,12 @@ def get_transactions_data(search_term=None, min_date=None, max_date=None, min_am
                 node = edge['node']
                 amt = node['amount'] / 100.0
                 date_str = node['occurredAt']
-                sub_id = node.get('subaccount', {}).get('id') if node.get('subaccount') else None
+                subaccount = node.get('subaccount') or {}
+                sub_id = subaccount.get('id')
+                sub_name = subaccount.get('displayName')
+                is_primary = subaccount.get('isPrimary', False)
+                transfer = node.get('transfer') or {}
+                transfer_type = transfer.get('type')
                 if min_date or max_date:
                     tx_date = date_str[:10]
                     if min_date and tx_date < min_date: continue
@@ -617,7 +622,19 @@ def get_transactions_data(search_term=None, min_date=None, max_date=None, min_am
                     abs_amt = abs(amt)
                     if min_amount and abs_amt < float(min_amount): continue
                     if max_amount and abs_amt > float(max_amount): continue
-                txs.append({"id": node['id'], "title": node['title'], "description": node['description'], "amount": amt, "date": date_str, "type": node['type'], "subaccountId": sub_id})
+                txs.append({
+                    "id": node['id'],
+                    "title": node['title'],
+                    "description": node['description'],
+                    "amount": amt,
+                    "date": date_str,
+                    "type": node['type'],
+                    "subaccountId": sub_id,
+                    "pocketName": sub_name if sub_id and not is_primary else None,
+                    "memo": node.get('memo') or node.get('externalMemo') or '',
+                    "matchingName": node.get('matchingName'),
+                    "transferType": transfer_type
+                })
         except Exception as e:
             return {"error": f"Parse Error: {str(e)}"}
         return {"transactions": txs}
