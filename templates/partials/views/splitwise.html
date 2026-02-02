@@ -1,0 +1,103 @@
+<div id="view-splitwise" class="view-section">
+    <div class="section-header-row">
+        <span class="tab-title">Splitwise</span>
+    </div>
+    <div class="data-container" style="padding: 40px 20px;">
+        <div style="max-width: 800px; margin: 0 auto;">
+
+    <!-- Connect Screen -->
+    <div id="splitwise-connect-screen" style="display:none;">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <div style="font-size: 48px; margin-bottom: 20px;">🤝</div>
+            <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Connect Splitwise</h1>
+            <p style="font-size: 16px; color: var(--text-light); line-height: 1.6;">
+                Track shared expenses and create pockets for people you owe money to.
+            </p>
+        </div>
+
+        <!-- API Key Input -->
+        <div style="background: var(--bg-elevated); border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px dashed var(--border-color);">
+            <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px; color: var(--text-dark);">Enter Your Splitwise API Key</h3>
+            <ol style="line-height: 2; color: var(--text-light); padding-left: 20px; margin-bottom: 20px;">
+                <li>Get your API key from <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--simple-blue);">Splitwise Settings</a></li>
+                <li>Paste it below and click "Connect"</li>
+            </ol>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">API Key</label>
+                <input type="password" id="splitwise-api-key-input" placeholder="Paste your API key" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+            </div>
+            <p id="splitwise-api-error" style="background: var(--alert-red); color: white; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none; font-size: 13px;"></p>
+            <button onclick="saveAndCreateSplitwisePockets()" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                Connect
+            </button>
+        </div>
+    </div>
+
+    <!-- Creditor Selection Screen -->
+    <div id="splitwise-creditor-selection-screen" style="display:none;">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <div style="font-size: 48px; margin-bottom: 20px;">👥</div>
+            <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Select Who You Owe</h1>
+            <p style="font-size: 16px; color: var(--text-light); line-height: 1.6;">
+                Choose which people you want to create pockets for. Only selected people will be tracked.
+            </p>
+        </div>
+
+        <div style="background: var(--bg-elevated); border-radius: 12px; padding: 30px; margin-bottom: 30px;">
+            <div id="splitwise-creditor-select" style="margin-bottom: 24px;">
+                <p style="color: var(--text-light); text-align: center;">Loading creditors...</p>
+            </div>
+
+            <div style="display: flex; gap: 12px;">
+                <button onclick="createSelectedCreditorPockets()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                    Create Pockets
+                </button>
+                <button onclick="showConnectScreen()" style="flex: 1; background: var(--border-color); color: var(--text-dark); border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                    Back
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Management Screen -->
+    <div id="splitwise-management-screen" style="display:none;">
+        <!-- Actions -->
+        <div style="display: flex; gap: 10px; margin-bottom: 30px;">
+            <button onclick="syncSplitwiseNow()" style="flex: 1; padding: 14px; background: var(--simple-blue); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                🔄 Sync Now
+            </button>
+            <button onclick="disconnectSplitwise()" style="flex: 1; padding: 14px; background: var(--alert-red); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                ❌ Disconnect
+            </button>
+        </div>
+
+        <!-- Last Sync Info -->
+        <div style="background: var(--bg-elevated); padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; color: var(--text-light); font-size: 13px;">
+            Last sync: <span id="splitwise-last-sync" style="color: var(--text-dark); font-weight: 600;">Never</span>
+        </div>
+
+        <!-- Friend Pockets List -->
+        <div style="background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden; margin-bottom: 30px;">
+            <div style="padding: 20px; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--text-dark); font-size: 15px;">
+                Current Pocket Balances
+            </div>
+            <div id="splitwise-pockets-list" style="padding: 20px;">
+                <p style="color: var(--text-light); text-align: center;">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Splitwise Balances -->
+        <div style="background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden;">
+            <div style="padding: 20px; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--text-dark); font-size: 15px;">
+                Splitwise Balances
+                <span style="font-size: 12px; font-weight: normal; color: var(--text-light);">(Green = they owe you)</span>
+            </div>
+            <div id="splitwise-all-expenses" style="padding: 20px;">
+                <p style="color: var(--text-light); text-align: center;">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+        </div>
+    </div>
+</div>

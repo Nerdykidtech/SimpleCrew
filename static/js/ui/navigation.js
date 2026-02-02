@@ -7,6 +7,7 @@
  * @requires api/family.js (loadFamily)
  * @requires api/cards.js (loadCards)
  * @requires api/credit.js (loadCreditSetup, cleanupCreditCardIntervals)
+ * @requires api/splitwise.js (loadSplitwiseSetup)
  * @requires features/autorefresh.js (startTransactionAutoRefresh, stopTransactionAutoRefresh)
  */
 
@@ -65,6 +66,9 @@ function switchTab(tab) {
     } else {
         // Clean up credit card intervals when leaving credit page
         cleanupCreditCardIntervals();
+    }
+    if(tab === 'splitwise') {
+        loadSplitwiseSetup();
     }
 }
 

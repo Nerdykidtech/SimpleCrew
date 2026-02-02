@@ -4,6 +4,7 @@ import time
 import functools
 import os
 import threading
+import json
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, jsonify, request, send_from_directory
 
@@ -322,6 +323,88 @@ def init_db():
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # Splitwise configuration (API key + user ID)
+    c.execute('''CREATE TABLE IF NOT EXISTS splitwise_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_sync TEXT,
+        sync_interval INTEGER DEFAULT 3600
+    )''')
+
+    # Splitwise pocket configuration (one pocket per friend)
+    c.execute('''CREATE TABLE IF NOT EXISTS splitwise_pocket_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        friend_id INTEGER NOT NULL UNIQUE,
+        friend_name TEXT NOT NULL,
+        pocket_id TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # Track processed Splitwise expenses (deduplication by expense_id and friend_id)
+    c.execute('''CREATE TABLE IF NOT EXISTS splitwise_expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        expense_id TEXT NOT NULL,
+        friend_id INTEGER NOT NULL,
+        description TEXT,
+        amount REAL,
+        date TEXT,
+        created_by_id INTEGER,
+        created_by_name TEXT,
+        currency_code TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(expense_id, friend_id)
+    )''')
+
+    # Migration: Add columns to splitwise_config if they don't exist
+    try:
+        c.execute("SELECT last_sync FROM splitwise_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding last_sync column to splitwise_config...")
+        c.execute("ALTER TABLE splitwise_config ADD COLUMN last_sync TEXT")
+        conn.commit()
+
+    try:
+        c.execute("SELECT sync_interval FROM splitwise_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding sync_interval column to splitwise_config...")
+        c.execute("ALTER TABLE splitwise_config ADD COLUMN sync_interval INTEGER DEFAULT 3600")
+        conn.commit()
+
+    try:
+        c.execute("SELECT tracked_friends FROM splitwise_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding tracked_friends column to splitwise_config...")
+        c.execute("ALTER TABLE splitwise_config ADD COLUMN tracked_friends TEXT")
+        conn.commit()
+
+    # Migration: Add columns to splitwise_pocket_config if they don't exist
+    try:
+        c.execute("SELECT batch_mode FROM splitwise_pocket_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding batch_mode column to splitwise_pocket_config...")
+        c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN batch_mode INTEGER DEFAULT 1")
+        conn.commit()
+
+    try:
+        c.execute("SELECT tracked_friends FROM splitwise_pocket_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding tracked_friends column to splitwise_pocket_config...")
+        c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN tracked_friends TEXT")
+        conn.commit()
+
+    # Migration: Add friend_id and friend_name to splitwise_pocket_config if needed
+    try:
+        c.execute("SELECT friend_id FROM splitwise_pocket_config LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding friend_id and friend_name columns to splitwise_pocket_config...")
+        c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN friend_id INTEGER")
+        c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN friend_name TEXT")
+        conn.commit()
+
     conn.commit()
 
     # Auto-migrate env vars to database on first run
@@ -406,6 +489,24 @@ def get_lunchflow_api_key():
     # Fallback to env var
     env_key = os.environ.get("LUNCHFLOW_API_KEY")
     return env_key if env_key and env_key != "none" else None
+
+def get_splitwise_api_key():
+    """Get Splitwise API key from database"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT api_key FROM splitwise_config WHERE is_valid = 1 LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def get_splitwise_user_id():
+    """Get Splitwise user ID from database"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM splitwise_config LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 # --- API HELPERS ---
 def get_crew_headers():
@@ -2746,6 +2847,7 @@ def api_stop_tracking():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- SPLITWISE EXPENSE SYNCING ---
 # --- CREDIT CARD TRANSACTION SYNCING ---
 def check_credit_card_transactions():
     """Check for new credit card transactions and update balance (supports both LunchFlow and SimpleFin)"""
@@ -2863,6 +2965,7 @@ def check_credit_card_transactions():
             last_sync_iso = datetime.utcnow().isoformat() + 'Z'
             c.execute("UPDATE simplefin_config SET last_sync = ?", (last_sync_iso,))
             conn.commit()
+
 
         conn.close()
     except Exception as e:
@@ -4230,6 +4333,515 @@ def api_simplefin_sync_now():
             "accountsSynced": synced_count
         })
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- SPLITWISE API ENDPOINTS ---
+
+@app.route('/api/splitwise/get-config')
+def api_splitwise_get_config():
+    """Check if Splitwise is configured"""
+    return jsonify({"configured": bool(get_splitwise_api_key())})
+
+@app.route('/api/splitwise/save-key', methods=['POST'])
+def api_splitwise_save_key():
+    """Validate and save Splitwise API key"""
+    api_key = request.json.get('apiKey')
+    if not api_key:
+        return jsonify({"error": "API key required"}), 400
+
+    # Validate by getting current user
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_current_user",
+            headers=headers,
+            timeout=30
+        )
+    except Exception as e:
+        return jsonify({"error": f"Network error: {str(e)}"}), 500
+
+    if response.status_code == 200:
+        user_data = response.json().get("user", {})
+        user_id = user_data.get("id")
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("DELETE FROM splitwise_config")  # Clear old
+        c.execute("INSERT INTO splitwise_config (api_key, user_id, is_valid) VALUES (?, ?, 1)",
+                  (api_key, user_id))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True, "userId": user_id})
+    else:
+        return jsonify({"error": "Invalid API key"}), 400
+
+@app.route('/api/splitwise/friends')
+def api_splitwise_get_friends():
+    """Get list of Splitwise friends for filtering"""
+    api_key = get_splitwise_api_key()
+    if not api_key:
+        return jsonify({"error": "Splitwise not configured"}), 400
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+    except Exception as e:
+        return jsonify({"error": f"Network error: {str(e)}"}), 500
+
+    if response.status_code == 200:
+        friends = response.json().get("friends", [])
+        return jsonify({"friends": friends})
+    return jsonify({"error": "Failed to fetch friends"}), 500
+
+@app.route('/api/splitwise/set-tracked-friends', methods=['POST'])
+def api_splitwise_set_tracked_friends():
+    """Set which friends to track (or NULL for all)"""
+    friend_ids = request.json.get('friendIds')
+    tracked_friends_json = json.dumps(friend_ids) if friend_ids else None
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Store in splitwise_config as temporary preference (will be copied to pocket_config on creation)
+    c.execute("UPDATE splitwise_config SET tracked_friends = ? WHERE id = (SELECT MIN(id) FROM splitwise_config)",
+              (tracked_friends_json,))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/splitwise/get-creditors')
+def api_splitwise_get_creditors():
+    """Get list of friends user owes money to (from /get_friends endpoint)"""
+    try:
+        api_key = get_splitwise_api_key()
+
+        if not api_key:
+            return jsonify({"error": "Splitwise not configured"}), 400
+
+        # Fetch friends list with balance information
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch Splitwise friends"}), 500
+
+        # Get all friends (show all, regardless of balance)
+        friends_list = []
+        friends_data = response.json()
+
+        for friend in friends_data.get("friends", []):
+            # In Splitwise, balance is a list of balance objects for different currencies
+            # We'll take the first balance (usually USD)
+            balance_list = friend.get("balance", [])
+            if isinstance(balance_list, list) and len(balance_list) > 0:
+                balance = float(balance_list[0].get("amount", "0"))
+            else:
+                balance = float(balance_list) if balance_list else 0.0
+
+            friend_id = friend.get("id")
+            first_name = friend.get("first_name", "")
+            last_name = friend.get("last_name", "")
+            friend_name = f"{first_name} {last_name}".strip() or f"User {friend_id}"
+
+            # Show amount owed (negative balance means user owes, positive means friend owes user)
+            amount_owed = abs(balance) if balance < 0 else 0
+            amount_owed_to_user = abs(balance) if balance > 0 else 0
+
+            friends_list.append({
+                "friendId": friend_id,
+                "friendName": friend_name,
+                "amountOwed": round(amount_owed, 2),
+                "owesYou": round(amount_owed_to_user, 2)
+            })
+
+        # Sort by amount owed descending (those you owe first, then others)
+        friends_list.sort(key=lambda x: x["amountOwed"], reverse=True)
+
+        return jsonify({"creditors": friends_list})
+
+    except Exception as e:
+        print(f"❌ Error fetching creditors: {e}", flush=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/splitwise/create-pockets', methods=['POST'])
+def api_splitwise_create_pockets():
+    """Create per-friend Splitwise pockets for selected friends"""
+    try:
+        api_key = get_splitwise_api_key()
+
+        if not api_key:
+            return jsonify({"error": "Splitwise not configured"}), 400
+
+        # Get list of selected friend IDs to create pockets for
+        selected_friend_ids = request.json.get('friendIds', [])
+
+        if not selected_friend_ids:
+            return jsonify({"error": "No friends selected"}), 400
+
+        # Fetch friends list to get names and balances
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch Splitwise friends"}), 500
+
+        # Build map of selected friends with their names and balances
+        friend_info = {}  # friend_id -> {name, balance}
+        friends_data = response.json()
+
+        for friend in friends_data.get("friends", []):
+            friend_id = friend.get("id")
+
+            # Only process selected friends
+            if friend_id not in selected_friend_ids:
+                continue
+
+            # Get friend's balance (negative = user owes)
+            # Balance is a list of balance objects for different currencies
+            balance_list = friend.get("balance", [])
+            if isinstance(balance_list, list) and len(balance_list) > 0:
+                balance = float(balance_list[0].get("amount", "0"))
+            else:
+                balance = float(balance_list) if balance_list else 0.0
+
+            first_name = friend.get("first_name", "")
+            last_name = friend.get("last_name", "")
+            friend_name = f"{first_name} {last_name}".strip() or f"User {friend_id}"
+
+            # Create pocket for selected friend with current balance (negative = user owes, positive = friend owes user)
+            initial_amount = abs(balance) if balance < 0 else 0  # Only move money when user owes (balance < 0)
+
+            print(f"🔍 {friend_name}: raw_balance={balance}, is_positive={balance > 0}, initial_amount={initial_amount}", flush=True)
+
+            friend_info[friend_id] = {
+                "name": friend_name,
+                "balance": initial_amount
+            }
+
+        if not friend_info:
+            return jsonify({"error": "No friends selected"}), 400
+
+        # Create a pocket for each selected friend
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        created_pockets = []
+
+        for friend_id, info in friend_info.items():
+            friend_name = info["name"]
+            initial_amount = info["balance"]
+
+            # Create pocket
+            pocket_data = create_pocket(
+                f"Owed to {friend_name}",
+                target_amount=0,
+                initial_amount=initial_amount,
+                note=f"You owe {friend_name} this amount"
+            )
+
+            if pocket_data.get("error"):
+                error_msg = pocket_data.get("error")
+                print(f"❌ Failed to create pocket for {friend_name}: {error_msg}", flush=True)
+                conn.close()
+                return jsonify({"error": f"Failed to create pocket for {friend_name}: {error_msg}"}), 500
+
+            result = pocket_data.get("result", {})
+            pocket_id = result.get("id")
+
+            if not pocket_id:
+                conn.close()
+                return jsonify({"error": f"Failed to get pocket ID for {friend_name}"}), 500
+
+            # Save to database
+            c.execute("""INSERT OR REPLACE INTO splitwise_pocket_config
+                        (friend_id, friend_name, pocket_id)
+                        VALUES (?, ?, ?)""",
+                      (friend_id, friend_name, pocket_id))
+
+            created_pockets.append({"friendId": friend_id, "name": friend_name, "pocketId": pocket_id})
+            print(f"✨ Created pocket for {friend_name}: ${initial_amount:.2f}", flush=True)
+
+        conn.commit()
+        conn.close()
+        cache.clear()
+
+        return jsonify({
+            "success": True,
+            "pockets": created_pockets,
+            "count": len(created_pockets)
+        })
+
+    except Exception as e:
+        print(f"❌ Error creating pockets: {e}", flush=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/splitwise/status')
+def api_splitwise_status():
+    """Get Splitwise integration status"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Get all friend pockets
+    c.execute("SELECT friend_id, friend_name, pocket_id FROM splitwise_pocket_config ORDER BY friend_name")
+    pocket_rows = c.fetchall()
+
+    c.execute("SELECT last_sync FROM splitwise_config LIMIT 1")
+    config_row = c.fetchone()
+
+    c.execute("SELECT COUNT(*) FROM splitwise_expenses")
+    expense_row = c.fetchone()
+    expense_count = expense_row[0] if expense_row else 0
+
+    conn.close()
+
+    pockets = [
+        {"friendId": row[0], "friendName": row[1], "pocketId": row[2]}
+        for row in pocket_rows
+    ]
+
+    return jsonify({
+        "configured": bool(get_splitwise_api_key()),
+        "pocketsCreated": len(pockets) > 0,
+        "pockets": pockets,
+        "lastSync": config_row[0] if config_row else None,
+        "totalExpenses": expense_count
+    })
+
+@app.route('/api/splitwise/friend-balances')
+def api_splitwise_friend_balances():
+    """Get tracked friend balances from Splitwise API"""
+    try:
+        api_key = get_splitwise_api_key()
+
+        if not api_key:
+            return jsonify({"error": "Splitwise not configured"}), 400
+
+        # Fetch friends list with current balances
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch friends"}), 500
+
+        # Get tracked friend list from database
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT friend_id, pocket_id FROM splitwise_pocket_config")
+        tracked_friends = {row[0]: row[1] for row in c.fetchall()}
+        conn.close()
+
+        # Build response with tracked friends and their balances
+        balances = []
+        friends_data = response.json()
+
+        for friend in friends_data.get("friends", []):
+            friend_id = friend.get("id")
+
+            # Only include tracked friends
+            if friend_id not in tracked_friends:
+                continue
+
+            # Get friend's balance (positive = user owes in Splitwise API)
+            balance_list = friend.get("balance", [])
+            if isinstance(balance_list, list) and len(balance_list) > 0:
+                balance = float(balance_list[0].get("amount", "0"))
+            else:
+                balance = float(balance_list) if balance_list else 0.0
+
+            first_name = friend.get("first_name", "")
+            last_name = friend.get("last_name", "")
+            friend_name = f"{first_name} {last_name}".strip() or f"User {friend_id}"
+
+            # Include all tracked friends with their absolute balance values
+            balances.append({
+                "friendId": friend_id,
+                "friendName": friend_name,
+                "balance": round(abs(balance), 2),  # Absolute value for display
+                "pocketId": tracked_friends[friend_id]
+            })
+
+        # Sort by balance descending
+        balances.sort(key=lambda x: x["balance"], reverse=True)
+
+        return jsonify({"balances": balances})
+
+    except Exception as e:
+        print(f"❌ Error fetching friend balances: {e}", flush=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/splitwise/sync-now', methods=['POST'])
+def api_splitwise_sync_now():
+    """Sync Splitwise friend balances to pocket balances"""
+    try:
+        api_key = get_splitwise_api_key()
+        if not api_key:
+            return jsonify({"error": "Splitwise not configured"}), 400
+
+        # Fetch friends list with current balances
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch Splitwise friends"}), 500
+
+        # Get tracked friends with their pocket IDs
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT friend_id, friend_name, pocket_id FROM splitwise_pocket_config")
+        tracked_friends = {row[0]: {"name": row[1], "pocket_id": row[2]} for row in c.fetchall()}
+
+        # Update sync timestamp (use subquery to get the actual row id)
+        c.execute("UPDATE splitwise_config SET last_sync = ? WHERE id = (SELECT MIN(id) FROM splitwise_config)",
+                  (datetime.now().isoformat(),))
+        conn.commit()
+        conn.close()
+
+        if not tracked_friends:
+            return jsonify({"success": True, "synced": 0, "message": "No tracked friends"})
+
+        # Get Crew headers and checking account for transfers
+        crew_headers = get_crew_headers()
+        checking_id = get_primary_account_id()
+
+        if not crew_headers or not checking_id:
+            return jsonify({"error": "Crew credentials not configured"}), 400
+
+        synced_count = 0
+        friends_data = response.json()
+
+        for friend in friends_data.get("friends", []):
+            friend_id = friend.get("id")
+
+            # Only sync tracked friends
+            if friend_id not in tracked_friends:
+                continue
+
+            tracked = tracked_friends[friend_id]
+            pocket_id = tracked["pocket_id"]
+            friend_name = tracked["name"]
+
+            # Get friend's balance from Splitwise
+            # Negative balance = user owes money (we need to save for this)
+            # Positive balance = friend owes user (they owe you)
+            balance_list = friend.get("balance", [])
+            if isinstance(balance_list, list) and len(balance_list) > 0:
+                splitwise_balance = float(balance_list[0].get("amount", "0"))
+            else:
+                splitwise_balance = float(balance_list) if balance_list else 0.0
+
+            # Amount user owes (negative in Splitwise = user owes)
+            amount_owed = abs(splitwise_balance) if splitwise_balance < 0 else 0
+
+            # Get current pocket balance from Crew
+            query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+            pocket_response = requests.post(URL, headers=crew_headers, json={
+                "operationName": "GetSubaccount",
+                "variables": {"id": pocket_id},
+                "query": query_string
+            })
+            pocket_data = pocket_response.json()
+            current_balance_cents = pocket_data.get("data", {}).get("node", {}).get("overallBalance", 0)
+            current_balance = current_balance_cents / 100.0
+
+            # Calculate difference
+            difference = amount_owed - current_balance
+
+            if abs(difference) < 0.01:
+                print(f"✅ {friend_name}: Already synced (${current_balance:.2f})", flush=True)
+                continue
+
+            if difference > 0:
+                # Need to add money to pocket (user owes more than pocket has)
+                result = move_money(checking_id, pocket_id, difference, f"Splitwise sync: {friend_name}")
+                if result.get("error"):
+                    print(f"❌ Failed to add ${difference:.2f} to {friend_name}'s pocket: {result['error']}", flush=True)
+                else:
+                    print(f"➕ Added ${difference:.2f} to {friend_name}'s pocket (now ${amount_owed:.2f})", flush=True)
+                    synced_count += 1
+            else:
+                # Need to remove money from pocket (user owes less than pocket has)
+                amount_to_remove = abs(difference)
+                result = move_money(pocket_id, checking_id, amount_to_remove, f"Splitwise sync: {friend_name}")
+                if result.get("error"):
+                    print(f"❌ Failed to remove ${amount_to_remove:.2f} from {friend_name}'s pocket: {result['error']}", flush=True)
+                else:
+                    print(f"➖ Removed ${amount_to_remove:.2f} from {friend_name}'s pocket (now ${amount_owed:.2f})", flush=True)
+                    synced_count += 1
+
+        cache.clear()
+        return jsonify({"success": True, "synced": synced_count})
+
+    except Exception as e:
+        print(f"❌ Error syncing Splitwise: {e}", flush=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/splitwise/disconnect', methods=['POST'])
+def api_splitwise_disconnect():
+    """Disconnect Splitwise integration and delete all friend pockets"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get all friend pockets
+        c.execute("SELECT friend_name, pocket_id FROM splitwise_pocket_config")
+        pocket_rows = c.fetchall()
+
+        checking_id = get_primary_account_id()
+        headers = get_crew_headers()
+
+        # Try to return money from each pocket to Checking
+        for friend_name, pocket_id in pocket_rows:
+            if checking_id and pocket_id and headers:
+                try:
+                    query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+                    response = requests.post(URL, headers=headers, json={
+                        "operationName": "GetSubaccount",
+                        "variables": {"id": pocket_id},
+                        "query": query_string
+                    })
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        balance = data.get("data", {}).get("node", {}).get("overallBalance", 0) / 100.0
+                        if balance > 0.01:
+                            move_money(pocket_id, checking_id, str(balance), f"Splitwise: {friend_name} disconnected")
+                            print(f"✅ Returned ${balance:.2f} from {friend_name} pocket", flush=True)
+                except Exception as e:
+                    print(f"⚠️ Error returning {friend_name} pocket balance: {e}", flush=True)
+
+        # Clear all Splitwise data
+        c.execute("DELETE FROM splitwise_config")
+        c.execute("DELETE FROM splitwise_pocket_config")
+        c.execute("DELETE FROM splitwise_expenses")
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        print(f"✅ Splitwise disconnected - deleted {len(pocket_rows)} pockets", flush=True)
+        return jsonify({"success": True, "message": f"Splitwise disconnected and {len(pocket_rows)} pocket(s) deleted"})
+    except Exception as e:
+        print(f"❌ Error disconnecting Splitwise: {e}", flush=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
