@@ -3144,13 +3144,14 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
 
         print(f"✅ SimpleFin: Found {len(transactions)} total transactions for account {account_id}")
 
-        # Get list of already seen transaction IDs and their pending status
-        c.execute("SELECT transaction_id, is_pending FROM credit_card_transactions WHERE account_id = ?", (account_id,))
-        existing_txs = {row[0]: row[1] for row in c.fetchall()}
+        # Get list of already seen transaction IDs with their pending status and amount
+        c.execute("SELECT transaction_id, is_pending, amount FROM credit_card_transactions WHERE account_id = ?", (account_id,))
+        existing_txs = {row[0]: {'is_pending': row[1], 'amount': row[2]} for row in c.fetchall()}
         print(f"  Already have {len(existing_txs)} transactions in database")
 
         new_transactions = []
         payment_transactions = []  # Track payments to move money back from pocket
+        amount_adjustments = []  # Track amount changes that need pocket adjustment
         for tx in transactions:
             tx_id = tx.get("id")
             if not tx_id:
@@ -3190,17 +3191,41 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
 
             # Check if this transaction already exists
             if tx_id in existing_txs:
-                # Transaction exists - check if it was pending and now posted
-                was_pending = existing_txs[tx_id]
+                existing_data = existing_txs[tx_id]
+                was_pending = existing_data['is_pending']
+                old_amount = existing_data['amount']
+
+                # Check if amount has changed (e.g., tip added at restaurant)
+                amount_changed = abs(amount - old_amount) > 0.01  # Use small epsilon for float comparison
+
                 if was_pending and not pending:
                     # Transaction has posted! Update it with final date and clear pending flag
-                    print(f"  📌 Transaction posted: ${amount} - {description} (ID: {tx_id})")
+                    if amount_changed:
+                        print(f"  📌 Transaction posted with amount change: ${old_amount:.2f} → ${amount:.2f} - {description} (ID: {tx_id})")
+                        amount_diff = amount - old_amount
+                        amount_adjustments.append({'amount': amount_diff, 'description': description})
+                    else:
+                        print(f"  📌 Transaction posted: ${amount} - {description} (ID: {tx_id})")
+
                     c.execute("""UPDATE credit_card_transactions
-                                SET is_pending = 0, date = ?
+                                SET is_pending = 0, date = ?, amount = ?
                                 WHERE transaction_id = ? AND account_id = ?""",
-                            (date_str, tx_id, account_id))
+                            (date_str, amount, tx_id, account_id))
                     if c.rowcount > 0:
                         print(f"  ✅ Updated transaction {tx_id} to posted status")
+                elif amount_changed:
+                    # Amount changed but still pending (less common, but possible)
+                    print(f"  💰 Pending transaction amount changed: ${old_amount:.2f} → ${amount:.2f} - {description} (ID: {tx_id})")
+                    amount_diff = amount - old_amount
+                    amount_adjustments.append({'amount': amount_diff, 'description': description})
+
+                    c.execute("""UPDATE credit_card_transactions
+                                SET amount = ?
+                                WHERE transaction_id = ? AND account_id = ?""",
+                            (amount, tx_id, account_id))
+                    if c.rowcount > 0:
+                        print(f"  ✅ Updated transaction {tx_id} amount")
+
                 # Skip this transaction - it's already been processed
                 continue
 
@@ -3306,6 +3331,36 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
                             cache.clear()
         elif payment_transactions and is_initial_sync:
             print(f"⏭️ Skipping automatic payment transfers for initial sync ({len(payment_transactions)} historical payments stored)", flush=True)
+
+        # Handle amount adjustments (e.g., tips added at restaurants)
+        # Move additional money when transaction amounts increase
+        if amount_adjustments and pocket_id and not is_initial_sync:
+            headers_crew = get_crew_headers()
+            if headers_crew:
+                # Get Checking subaccount ID
+                all_subs = get_subaccounts_list()
+                checking_subaccount_id = None
+                if "error" not in all_subs:
+                    for sub in all_subs.get("subaccounts", []):
+                        if sub["name"] == "Checking":
+                            checking_subaccount_id = sub["id"]
+                            break
+
+                if checking_subaccount_id:
+                    # Sum all amount adjustments (positive = need more money, negative = return money)
+                    total_adjustment = sum(adj['amount'] for adj in amount_adjustments)
+
+                    if abs(total_adjustment) > 0.01:
+                        if total_adjustment > 0:
+                            # Amount increased (e.g., tip added) - move more money to pocket
+                            print(f"💰 Amount adjustment: Moving additional ${total_adjustment:.2f} from Checking to Credit Card pocket ({len(amount_adjustments)} transaction(s))", flush=True)
+                            move_money(checking_subaccount_id, pocket_id, str(total_adjustment), f"Amount adjustment: {len(amount_adjustments)} transaction(s)")
+                            cache.clear()
+                        else:
+                            # Amount decreased (rare, but possible) - return money to checking
+                            print(f"💰 Amount adjustment: Returning ${abs(total_adjustment):.2f} from Credit Card pocket to Checking ({len(amount_adjustments)} transaction(s))", flush=True)
+                            move_money(pocket_id, checking_subaccount_id, str(abs(total_adjustment)), f"Amount adjustment: {len(amount_adjustments)} transaction(s)")
+                            cache.clear()
 
         # Update pocket balance to match SimpleFin balance
         # Always save the balance to database, even during initial sync
