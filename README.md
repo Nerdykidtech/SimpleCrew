@@ -90,6 +90,15 @@ SimpleCrew is a comprehensive financial dashboard that connects to [Crew Banking
 | **Balance Tracking** | Monitor credit card balances |
 | **Pocket Linking** | Dedicated pockets for credit card payments |
 
+### 🔐 Security & Authentication
+| Feature | Description |
+|---------|-------------|
+| **User Authentication** | Secure username/password login with session management |
+| **Password Security** | PBKDF2-SHA256 hashing with 8-character minimum |
+| **Single-Tenant Model** | One user per deployment for privacy |
+| **Session Management** | Secure cookie-based sessions with HttpOnly flag |
+| **Password Management** | Change password from account settings |
+
 ### 🎨 User Experience
 | Feature | Description |
 |---------|-------------|
@@ -153,12 +162,18 @@ open http://localhost:8080
 ### First-Time Setup
 
 1. Navigate to `http://localhost:8080`
-2. Complete the onboarding flow:
+2. **Create your account** (first-time only):
+   - Enter a username and password
+   - Email is optional
+   - Password must be at least 8 characters
+3. **Complete the onboarding flow**:
    - Select **Crew Banking** as your provider
    - Enter your Crew bearer token
-3. Start managing your finances!
+4. Start managing your finances!
 
 > **Getting Your Bearer Token**: Log into [Crew](https://app.trycrew.com), open browser DevTools (F12), go to Network tab, and find the `authorization` header in any API request.
+
+> **Security Note**: Only one user account can be created per installation. Registration is automatically disabled after the first user signs up.
 
 ---
 
@@ -232,6 +247,8 @@ SimpleCrew/
 └── templates/
     ├── base.html                   # Base template
     ├── index.html                  # Main dashboard
+    ├── login.html                  # Login page
+    ├── register.html               # First-time registration
     ├── onboarding.html             # Setup wizard
     └── partials/
         ├── header.html
@@ -242,12 +259,24 @@ SimpleCrew/
             ├── goals.html
             ├── family.html
             ├── cards.html
-            └── credit.html
+            ├── credit.html
+            └── account.html         # Account settings & security
 ```
 
 ---
 
 ## API Reference
+
+### Authentication
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/login` | GET | Login page (or registration if no users exist) |
+| `/api/auth/login` | POST | Authenticate user and create session |
+| `/api/auth/logout` | POST | End user session |
+| `/api/auth/register` | POST | Create user account (first-time only) |
+| `/api/auth/change-password` | POST | Update user password |
+
+> **Note**: All API endpoints below require authentication. Unauthenticated requests will be redirected to `/login`.
 
 ### Financial Data
 | Endpoint | Method | Description |
@@ -290,19 +319,25 @@ SimpleCrew/
 
 ### Database-Stored Credentials
 
-All credentials are securely stored in the SQLite database:
+All credentials and configuration are securely stored in the SQLite database:
 
 | Credential | Configuration |
 |------------|---------------|
-| **Crew Bearer Token** | Set during onboarding |
-| **SimpleFin API Key** | Set in Credit Cards section |
+| **User Account** | Created during first-time setup |
+| **SECRET_KEY** | Auto-generated on first run for session encryption |
+| **Crew Bearer Token** | Set during onboarding or in Account Settings |
+| **SimpleFin Access URL** | Set in Credit Cards section |
+| **LunchFlow API Key** | Set in Credit Cards section |
+| **Splitwise API Key** | Set in Account Settings |
 
 ### Environment Variables (Optional)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_FILE` | Database file path | `savings_data.db` |
-| `BEARER_TOKEN` | Legacy token support | - |
+| `DB_FILE` | Database file path | `data/savings_data.db` |
+| `BEARER_TOKEN` | Legacy token support (auto-migrated to DB) | - |
+
+> **Note**: No environment variables are required. SECRET_KEY is automatically generated and stored in the database on first run.
 
 ---
 
@@ -359,17 +394,32 @@ docker-compose up -d --build
 
 | Aspect | Implementation |
 |--------|----------------|
-| **Credential Storage** | Encrypted in SQLite database |
+| **User Authentication** | Flask-Login with session-based authentication |
+| **Password Security** | PBKDF2-SHA256 hashing with salt |
+| **Session Management** | Auto-generated SECRET_KEY, HttpOnly cookies |
+| **Route Protection** | All API endpoints require authentication |
+| **Credential Storage** | Securely stored in SQLite database |
 | **API Tokens** | Validated before storage |
 | **Data Directory** | Excluded from version control |
-| **Session Security** | Secure cookie handling |
+| **SQL Injection** | Parameterized queries throughout |
 
 ### Best Practices
 
+- Use a strong password (8+ characters recommended)
+- Change your password regularly via Account Settings
+- Always use HTTPS in production deployments
 - Regularly rotate API credentials
 - Backup your `data/` directory
 - Keep Docker images updated
 - Review access logs periodically
+
+### Production Security Recommendations
+
+For production deployments, consider adding:
+- **Rate Limiting**: Prevent brute-force attacks on login endpoint
+- **Session Timeout**: Configure automatic session expiration
+- **CSRF Protection**: Implement CSRF tokens for state-changing operations
+- **HTTPS Only**: Use SSL/TLS certificates and set `SESSION_COOKIE_SECURE=True`
 
 ---
 
@@ -379,7 +429,11 @@ docker-compose up -d --build
 
 | Issue | Solution |
 |-------|----------|
-| **Authentication Errors** | Re-enter token via onboarding (delete database) |
+| **Can't Login** | Verify username and password. Check `data/savings_data.db` exists |
+| **Forgot Password** | Delete database to reset (will lose all data). Better: use strong, memorable password |
+| **Registration Disabled** | Registration only allowed for first user. Use existing account or reset database |
+| **Session Expired** | Log in again. Sessions persist until manual logout |
+| **API Token Errors** | Update tokens in Account Settings → Test connection |
 | **Database Issues** | Check `data/` directory permissions |
 | **API Connection** | Verify network access to `api.trycrew.com` |
 | **Mobile Display** | Clear browser cache, check viewport |

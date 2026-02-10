@@ -143,6 +143,28 @@ function toggleUserMenu(e) {
     }
 }
 
+async function handleLogout(e) {
+    e.stopPropagation();
+
+    try {
+        const response = await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            // Redirect to login page
+            window.location.href = '/login';
+        } else {
+            alert('Logout failed. Please try again.');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        alert('Network error during logout. Please try again.');
+    }
+}
+
 // Close user dropdown when clicking outside
 document.addEventListener('click', function(e) {
     const dropdown = document.getElementById('user-dropdown');

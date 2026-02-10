@@ -186,6 +186,37 @@
                 </div>
             </div>
 
+            <!-- Security Section -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🔒</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Security</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Update your account password</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="changePasswordForm" style="max-width: 500px;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Current Password</label>
+                        <input type="password" id="currentPassword" placeholder="Enter current password" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">New Password</label>
+                        <input type="password" id="newPassword" placeholder="Enter new password (min. 8 characters)" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
+                            Password must be at least 8 characters long.
+                        </p>
+                    </div>
+                    <div id="passwordMessage" style="padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                    <button type="submit" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                        Update Password
+                    </button>
+                </form>
+            </div>
+
             <!-- Info Section -->
             <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; margin-top: 32px;">
                 <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">💡 Security Note</h4>
@@ -197,3 +228,40 @@
         </div>
     </div>
 </div>
+
+<script>
+// Password change form handler
+document.getElementById('changePasswordForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const messageDiv = document.getElementById('passwordMessage');
+
+    try {
+        const response = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            messageDiv.style.display = 'block';
+            messageDiv.style.background = '#d4edda';
+            messageDiv.style.color = '#155724';
+            messageDiv.textContent = '✓ Password updated successfully';
+            document.getElementById('changePasswordForm').reset();
+        } else {
+            messageDiv.style.display = 'block';
+            messageDiv.style.background = '#f8d7da';
+            messageDiv.style.color = '#721c24';
+            messageDiv.textContent = '✗ ' + (data.error || 'Failed to update password');
+        }
+    } catch (error) {
+        messageDiv.style.display = 'block';
+        messageDiv.style.background = '#f8d7da';
+        messageDiv.style.color = '#721c24';
+        messageDiv.textContent = '✗ Network error. Please try again.';
+    }
+});
+</script>

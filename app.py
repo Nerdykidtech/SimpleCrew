@@ -6,7 +6,9 @@ import os
 import threading
 import json
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 
@@ -14,6 +16,59 @@ app = Flask(__name__)
 URL = "https://api.trycrew.com/willow/graphql"
 # In app.py
 DB_FILE = os.environ.get("DB_FILE", "savings_data.db")
+
+def get_or_create_secret_key():
+    """Get secret key from database, or generate and save a new one"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Create app_config table if it doesn't exist
+    c.execute('''CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # Try to get existing secret key
+    c.execute("SELECT value FROM app_config WHERE key = 'secret_key' LIMIT 1")
+    row = c.fetchone()
+
+    if row:
+        secret_key = row[0]
+    else:
+        # Generate new secret key and save it
+        secret_key = os.urandom(24).hex()
+        c.execute("INSERT INTO app_config (key, value) VALUES ('secret_key', ?)", (secret_key,))
+        conn.commit()
+        print("✅ Generated and saved new SECRET_KEY to database")
+
+    conn.close()
+    return secret_key
+
+# Configure Flask-Login
+app.secret_key = get_or_create_secret_key()
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'  # Redirect to login page
+
+# User model
+class User(UserMixin):
+    def __init__(self, id, username, email):
+        self.id = id
+        self.username = username
+        self.email = email
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user from database for Flask-Login session"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, email FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return User(row[0], row[1], row[2])
+    return None
 
 # Global flag to ensure background thread starts only once
 _background_thread_started = False
@@ -404,6 +459,17 @@ def init_db():
         c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN friend_id INTEGER")
         c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN friend_name TEXT")
         conn.commit()
+
+    # User authentication table
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE,
+        password_hash TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_login TEXT
+    )''')
 
     conn.commit()
 
@@ -1814,7 +1880,133 @@ def create_bill_action(name, amount, frequency_key, day_of_month, match_string=N
         return {"error": str(e)}
 
 # --- ROUTES ---
+
+# --- AUTHENTICATION ROUTES ---
+@app.route('/login')
+def login():
+    """Login page - shows registration form if no users exist"""
+    if current_user.is_authenticated:
+        return redirect('/')
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    user_count = c.fetchone()[0]
+    conn.close()
+
+    if user_count == 0:
+        return render_template('register.html')
+    return render_template('login.html')
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """Handle login form submission"""
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, email, password_hash FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+
+    if row and check_password_hash(row[3], password):
+        user = User(row[0], row[1], row[2])
+        login_user(user)
+
+        # Update last login
+        c.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                  (datetime.now().isoformat(), row[0]))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    conn.close()
+    return jsonify({"success": False, "error": "Invalid username or password"}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def api_logout():
+    """Handle logout"""
+    logout_user()
+    return jsonify({"success": True})
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    """Handle registration - only allowed if no users exist"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Check if users already exist (single-tenant model)
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] > 0:
+        conn.close()
+        return jsonify({"success": False, "error": "Registration is disabled"}), 403
+
+    data = request.json
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+
+    # Validate input
+    if not username or not password:
+        conn.close()
+        return jsonify({"success": False, "error": "Username and password required"}), 400
+
+    if len(password) < 8:
+        conn.close()
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
+
+    # Create user
+    password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+    try:
+        c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                  (username, email, password_hash))
+        conn.commit()
+        user_id = c.lastrowid
+        conn.close()
+
+        # Auto-login
+        user = User(user_id, username, email)
+        login_user(user)
+
+        return jsonify({"success": True})
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"success": False, "error": "Username already exists"}), 400
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """Handle password change"""
+    data = request.json
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+
+    if not current_password or not new_password:
+        return jsonify({"success": False, "error": "Both current and new passwords required"}), 400
+
+    if len(new_password) < 8:
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT password_hash FROM users WHERE id = ?", (current_user.id,))
+    row = c.fetchone()
+
+    if row and check_password_hash(row[0], current_password):
+        new_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+        c.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, current_user.id))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+
+    conn.close()
+    return jsonify({"success": False, "error": "Current password is incorrect"}), 401
+
 @app.route('/')
+@login_required
 def index():
     # Check if onboarding is complete
     conn = sqlite3.connect(DB_FILE)
@@ -1831,6 +2023,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/debug')
+@login_required
 def debug(): return render_template('debug.html')
 
 # --- PWA ROUTES ---
@@ -1844,6 +2037,7 @@ def serve_sw():
 
 # --- ONBOARDING API ENDPOINTS ---
 @app.route('/api/onboarding/status')
+@login_required
 def api_onboarding_status():
     """Check if onboarding is complete"""
     conn = sqlite3.connect(DB_FILE)
@@ -1861,6 +2055,7 @@ def api_onboarding_status():
     })
 
 @app.route('/api/onboarding/crew/save-token', methods=['POST'])
+@login_required
 def api_save_crew_token():
     """Save and validate Crew bearer token"""
     data = request.get_json()
@@ -1915,6 +2110,7 @@ def api_save_crew_token():
     return jsonify({"success": True})
 
 @app.route('/api/onboarding/complete', methods=['POST'])
+@login_required
 def api_complete_onboarding():
     """Mark onboarding as complete"""
     # Verify token exists
@@ -1940,6 +2136,7 @@ def api_complete_onboarding():
 
 # --- ACCOUNT SETTINGS API ROUTES ---
 @app.route('/api/account/credentials/status')
+@login_required
 def api_get_credentials_status():
     """Get status of all configured credentials (without exposing actual values)"""
     try:
@@ -1991,6 +2188,7 @@ def api_get_credentials_status():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/account/crew/update-token', methods=['POST'])
+@login_required
 def api_account_update_crew_token():
     """Update Crew bearer token from account settings"""
     data = request.get_json()
@@ -2046,6 +2244,7 @@ def api_account_update_crew_token():
     return jsonify({"success": True, "message": "Crew token updated successfully"})
 
 @app.route('/api/account/crew/test', methods=['POST'])
+@login_required
 def api_account_test_crew():
     """Test Crew connection with stored token"""
     bearer_token = get_crew_bearer_token()
@@ -2085,6 +2284,7 @@ def api_account_test_crew():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/simplefin/update-token', methods=['POST'])
+@login_required
 def api_account_update_simplefin_token():
     """Update SimpleFin access token from account settings"""
     data = request.get_json()
@@ -2135,6 +2335,7 @@ def api_account_update_simplefin_token():
     return jsonify({"success": True, "message": "SimpleFin token updated successfully"})
 
 @app.route('/api/account/simplefin/test', methods=['POST'])
+@login_required
 def api_account_test_simplefin():
     """Test SimpleFin connection"""
     try:
@@ -2167,6 +2368,7 @@ def api_account_test_simplefin():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/lunchflow/update-key', methods=['POST'])
+@login_required
 def api_account_update_lunchflow_key():
     """Update LunchFlow API key from account settings"""
     data = request.get_json()
@@ -2209,6 +2411,7 @@ def api_account_update_lunchflow_key():
     return jsonify({"success": True, "message": "LunchFlow API key updated successfully"})
 
 @app.route('/api/account/lunchflow/test', methods=['POST'])
+@login_required
 def api_account_test_lunchflow():
     """Test LunchFlow connection"""
     api_key = get_lunchflow_api_key()
@@ -2238,6 +2441,7 @@ def api_account_test_lunchflow():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/splitwise/update-key', methods=['POST'])
+@login_required
 def api_account_update_splitwise_key():
     """Update Splitwise API key from account settings"""
     data = request.get_json()
@@ -2275,6 +2479,7 @@ def api_account_update_splitwise_key():
         return jsonify({"success": False, "error": "Invalid API key"}), 400
 
 @app.route('/api/account/splitwise/test', methods=['POST'])
+@login_required
 def api_account_test_splitwise():
     """Test Splitwise connection"""
     api_key = get_splitwise_api_key()
@@ -2308,8 +2513,10 @@ def api_account_test_splitwise():
 
 # --- API ROUTES ---
 @app.route('/api/family')
+@login_required
 def api_family(): return jsonify(get_family_data())
 @app.route('/api/cards')
+@login_required
 def api_cards():
     # Allow forcing a refresh if ?refresh=true is passed
     refresh = request.args.get('refresh') == 'true'
@@ -2317,6 +2524,7 @@ def api_cards():
 
 # 3. CREATE THE MISSING MOVE/REORDER ENDPOINT
 @app.route('/api/groups/move-pocket', methods=['POST'])
+@login_required
 def api_move_pocket():
     data = request.json
     
@@ -2349,6 +2557,7 @@ def api_move_pocket():
         conn.close()
 
 @app.route('/api/groups/manage', methods=['POST'])
+@login_required
 def api_manage_group():
     # Handles Create and Update
     data = request.json
@@ -2386,6 +2595,7 @@ def api_manage_group():
         conn.close()
 
 @app.route('/api/groups/delete', methods=['POST'])
+@login_required
 def api_delete_group():
     data = request.json
     group_id = data.get('id')
@@ -2407,6 +2617,7 @@ def api_delete_group():
 
 # --- NEW API ROUTE: Assign Group ---
 @app.route('/api/assign-group', methods=['POST'])
+@login_required
 def api_assign_group():
     data = request.json
     pocket_id = data.get('pocketId')
@@ -2430,6 +2641,7 @@ def api_assign_group():
         conn.close()
 
 @app.route('/api/set-card-spend', methods=['POST'])
+@login_required
 def api_set_card_spend():
     data = request.json
     return jsonify(set_spend_pocket_action(
@@ -2439,14 +2651,17 @@ def api_set_card_spend():
     ))
 
 @app.route('/api/savings')
+@login_required
 def api_savings():
     # Check if the frontend is asking for a forced refresh
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_financial_data(force_refresh=refresh))
 
 @app.route('/api/history')
+@login_required
 def api_history(): return jsonify(get_history())
 @app.route('/api/transactions')
+@login_required
 def api_transactions():
     q = request.args.get('q')
     min_date = request.args.get('minDate')
@@ -2531,6 +2746,7 @@ def api_transactions():
     return jsonify(result)
 
 @app.route('/api/pocket-transactions/<path:pocket_id>')
+@login_required
 def api_pocket_transactions(pocket_id):
     """Fetch transactions for a specific pocket/subaccount"""
     try:
@@ -2641,42 +2857,51 @@ def api_pocket_transactions(pocket_id):
         return jsonify({"error": str(e)})
 
 @app.route('/api/transaction/<path:tx_id>')
+@login_required
 def api_transaction_detail(tx_id): return jsonify(get_transaction_detail(tx_id))
 
 @app.route('/api/expenses')
+@login_required
 def api_expenses():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_expenses_data(force_refresh=refresh))
 
 @app.route('/api/goals')
+@login_required
 def api_goals():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_goals_data(force_refresh=refresh))
 
 @app.route('/api/trends')
+@login_required
 def api_trends(): return jsonify(get_monthly_trends())
 
 @app.route('/api/subaccounts')
+@login_required
 def api_subaccounts():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_subaccounts_list(force_refresh=refresh))
 
 @app.route('/api/family-subaccounts')
+@login_required
 def api_family_subaccounts():
     return jsonify(get_family_subaccounts())
 
 @app.route('/api/move-money', methods=['POST'])
+@login_required
 def api_move_money():
     data = request.json
     return jsonify(move_money(data.get('fromId'), data.get('toId'), data.get('amount'), data.get('note')))
 
 @app.route('/api/delete-pocket', methods=['POST'])
+@login_required
 def api_delete_pocket():
     data = request.json
     return jsonify(delete_subaccount_action(data.get('id')))
 
 
 @app.route('/api/create-pocket', methods=['POST'])
+@login_required
 def api_create_pocket():
     data = request.json
     result = create_pocket(
@@ -2706,12 +2931,14 @@ def api_create_pocket():
     return jsonify(result)
 
 @app.route('/api/delete-bill', methods=['POST'])
+@login_required
 def api_delete_bill():
     data = request.json
     return jsonify(delete_bill_action(data.get('id')))
 
 
 @app.route('/api/create-bill', methods=['POST'])
+@login_required
 def api_create_bill():
     data = request.json
     return jsonify(create_bill_action(
@@ -2726,15 +2953,18 @@ def api_create_bill():
     ))
 
 @app.route('/api/user')
+@login_required
 def api_user():
     return jsonify(get_user_profile_info())
 
 @app.route('/api/intercom')
+@login_required
 def api_intercom():
     return jsonify(get_intercom_data())
 
 # --- LUNCHFLOW API ENDPOINTS ---
 @app.route('/api/lunchflow/get-config')
+@login_required
 def api_get_lunchflow_config():
     """Get LunchFlow configuration status"""
     api_key = get_lunchflow_api_key()
@@ -2744,6 +2974,7 @@ def api_get_lunchflow_config():
     })
 
 @app.route('/api/lunchflow/save-key', methods=['POST'])
+@login_required
 def api_save_lunchflow_key():
     """Save LunchFlow API key (called from Credit Cards section)"""
     data = request.get_json()
@@ -2785,6 +3016,7 @@ def api_save_lunchflow_key():
     return jsonify({"success": True})
 
 @app.route('/api/lunchflow/accounts')
+@login_required
 def api_lunchflow_accounts():
     """List all accounts from LunchFlow"""
     api_key = get_lunchflow_api_key()
@@ -2815,6 +3047,7 @@ def api_lunchflow_accounts():
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 @app.route('/api/lunchflow/set-credit-card', methods=['POST'])
+@login_required
 def api_set_credit_card():
     """Store the selected credit card account ID (without creating pocket yet)"""
     data = request.json
@@ -2842,6 +3075,7 @@ def api_set_credit_card():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/get-balance/<account_id>')
+@login_required
 def api_get_balance(account_id):
     """Get the balance for a specific LunchFlow account"""
     api_key = get_lunchflow_api_key()
@@ -2868,6 +3102,7 @@ def api_get_balance(account_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/create-pocket-with-balance', methods=['POST'])
+@login_required
 def api_create_pocket_with_balance():
     """Create the credit card pocket and optionally sync balance"""
     data = request.json
@@ -2934,6 +3169,7 @@ def api_create_pocket_with_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/credit-card-status')
+@login_required
 def api_credit_card_status():
     """Get the current credit card account configuration (unified for both providers)"""
     api_key = get_lunchflow_api_key()
@@ -3010,6 +3246,7 @@ def api_credit_card_status():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/sync-balance', methods=['POST'])
+@login_required
 def api_sync_balance():
     """Sync the pocket balance to match the credit card balance"""
     data = request.json
@@ -3108,6 +3345,7 @@ def api_sync_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/change-account', methods=['POST'])
+@login_required
 def api_change_account():
     """Delete the credit card pocket, return money to safe-to-spend, and clear config"""
     try:
@@ -3179,6 +3417,7 @@ def api_change_account():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/stop-tracking', methods=['POST'])
+@login_required
 def api_stop_tracking():
     """Delete the credit card pocket, return money to safe-to-spend, and delete all config"""
     try:
@@ -3810,6 +4049,7 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         traceback.print_exc()
 
 @app.route('/api/lunchflow/last-check-time')
+@login_required
 def api_last_check_time():
     """Get the last time credit card transactions were checked"""
     try:
@@ -3848,6 +4088,7 @@ def ensure_background_thread():
     start_background_thread_once()
 
 @app.route('/api/lunchflow/transactions')
+@login_required
 def api_get_credit_card_transactions():
     """Get credit card transactions that have been synced (optionally filtered by accountId)"""
     try:
@@ -4007,6 +4248,7 @@ def simplefin_get_accounts(access_url, account_id=None):
         return {"error": f"Failed to fetch accounts: {str(e)}"}
 
 @app.route('/api/simplefin/get-access-url')
+@login_required
 def api_simplefin_get_access_url():
     """Get the stored SimpleFin access URL if it exists"""
     try:
@@ -4031,6 +4273,7 @@ def api_simplefin_get_access_url():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/claim-token', methods=['POST'])
+@login_required
 def api_simplefin_claim_token():
     """Claim a SimpleFin token and store the access URL immediately"""
     data = request.json
@@ -4061,6 +4304,7 @@ def api_simplefin_claim_token():
     return jsonify({"success": True, "accessUrl": access_url})
 
 @app.route('/api/simplefin/accounts', methods=['POST'])
+@login_required
 def api_simplefin_accounts():
     """List all accounts from SimpleFin using the access URL"""
     data = request.json
@@ -4077,6 +4321,7 @@ def api_simplefin_accounts():
     return jsonify(result)
 
 @app.route('/api/simplefin/set-credit-card', methods=['POST'])
+@login_required
 def api_simplefin_set_credit_card():
     """Store the selected SimpleFin credit card account"""
     data = request.json
@@ -4105,6 +4350,7 @@ def api_simplefin_set_credit_card():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/get-balance', methods=['POST'])
+@login_required
 def api_simplefin_get_balance():
     """Get the balance for a specific SimpleFin account"""
     data = request.json
@@ -4130,6 +4376,7 @@ def api_simplefin_get_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/create-pocket-with-balance', methods=['POST'])
+@login_required
 def api_simplefin_create_pocket_with_balance():
     """Create the credit card pocket for SimpleFin and optionally sync balance"""
     data = request.json
@@ -4235,6 +4482,7 @@ def api_simplefin_create_pocket_with_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-balance', methods=['POST'])
+@login_required
 def api_simplefin_sync_balance():
     """Sync the pocket balance to match the SimpleFin credit card balance"""
     data = request.json
@@ -4336,6 +4584,7 @@ def api_simplefin_sync_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/get-batch-mode', methods=['POST'])
+@login_required
 def api_simplefin_get_batch_mode():
     """Get the batch mode setting for a SimpleFin account"""
     try:
@@ -4362,6 +4611,7 @@ def api_simplefin_get_batch_mode():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/set-batch-mode', methods=['POST'])
+@login_required
 def api_simplefin_set_batch_mode():
     """Set the batch mode setting for a SimpleFin account"""
     try:
@@ -4399,6 +4649,7 @@ def api_simplefin_set_batch_mode():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/change-account', methods=['POST'])
+@login_required
 def api_simplefin_change_account():
     """Delete the SimpleFin credit card pocket and clear config"""
     try:
@@ -4470,6 +4721,7 @@ def api_simplefin_change_account():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/stop-tracking', methods=['POST'])
+@login_required
 def api_simplefin_stop_tracking():
     """Delete the SimpleFin credit card pocket and all config"""
     try:
@@ -4539,6 +4791,7 @@ def api_simplefin_stop_tracking():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/disconnect', methods=['POST'])
+@login_required
 def api_simplefin_disconnect():
     """Completely disconnect SimpleFin - removes access URL and all account tracking"""
     try:
@@ -4604,6 +4857,7 @@ def api_simplefin_disconnect():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-schedule', methods=['GET'])
+@login_required
 def api_get_simplefin_sync_schedule():
     """Get the current SimpleFin sync schedule setting"""
     import json
@@ -4633,6 +4887,7 @@ def api_get_simplefin_sync_schedule():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-schedule', methods=['POST'])
+@login_required
 def api_set_simplefin_sync_schedule():
     """Update the SimpleFin sync schedule setting"""
     import json
@@ -4670,6 +4925,7 @@ def api_set_simplefin_sync_schedule():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/timezone', methods=['GET'])
+@login_required
 def api_get_simplefin_timezone():
     """Get the configured timezone"""
     try:
@@ -4685,6 +4941,7 @@ def api_get_simplefin_timezone():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/timezone', methods=['POST'])
+@login_required
 def api_set_simplefin_timezone():
     """Set the timezone for date calculations"""
     try:
@@ -4721,6 +4978,7 @@ def api_set_simplefin_timezone():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-now', methods=['POST'])
+@login_required
 def api_simplefin_sync_now():
     """Manually trigger SimpleFin sync for all accounts"""
     try:
@@ -4805,11 +5063,13 @@ def api_simplefin_sync_now():
 # --- SPLITWISE API ENDPOINTS ---
 
 @app.route('/api/splitwise/get-config')
+@login_required
 def api_splitwise_get_config():
     """Check if Splitwise is configured"""
     return jsonify({"configured": bool(get_splitwise_api_key())})
 
 @app.route('/api/splitwise/save-key', methods=['POST'])
+@login_required
 def api_splitwise_save_key():
     """Validate and save Splitwise API key"""
     api_key = request.json.get('apiKey')
@@ -4844,6 +5104,7 @@ def api_splitwise_save_key():
         return jsonify({"error": "Invalid API key"}), 400
 
 @app.route('/api/splitwise/friends')
+@login_required
 def api_splitwise_get_friends():
     """Get list of Splitwise friends for filtering"""
     api_key = get_splitwise_api_key()
@@ -4866,6 +5127,7 @@ def api_splitwise_get_friends():
     return jsonify({"error": "Failed to fetch friends"}), 500
 
 @app.route('/api/splitwise/set-tracked-friends', methods=['POST'])
+@login_required
 def api_splitwise_set_tracked_friends():
     """Set which friends to track (or NULL for all)"""
     friend_ids = request.json.get('friendIds')
@@ -4883,6 +5145,7 @@ def api_splitwise_set_tracked_friends():
     return jsonify({"success": True})
 
 @app.route('/api/splitwise/get-creditors')
+@login_required
 def api_splitwise_get_creditors():
     """Get list of friends user owes money to (from /get_friends endpoint)"""
     try:
@@ -4941,6 +5204,7 @@ def api_splitwise_get_creditors():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/create-pockets', methods=['POST'])
+@login_required
 def api_splitwise_create_pockets():
     """Create per-friend Splitwise pockets for selected friends"""
     try:
@@ -5056,6 +5320,7 @@ def api_splitwise_create_pockets():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/status')
+@login_required
 def api_splitwise_status():
     """Get Splitwise integration status"""
     conn = sqlite3.connect(DB_FILE)
@@ -5088,6 +5353,7 @@ def api_splitwise_status():
     })
 
 @app.route('/api/splitwise/friend-balances')
+@login_required
 def api_splitwise_friend_balances():
     """Get tracked friend balances from Splitwise API"""
     try:
@@ -5154,6 +5420,7 @@ def api_splitwise_friend_balances():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/sync-now', methods=['POST'])
+@login_required
 def api_splitwise_sync_now():
     """Sync Splitwise friend balances to pocket balances"""
     try:
@@ -5264,6 +5531,7 @@ def api_splitwise_sync_now():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/disconnect', methods=['POST'])
+@login_required
 def api_splitwise_disconnect():
     """Disconnect Splitwise integration and delete all friend pockets"""
     try:

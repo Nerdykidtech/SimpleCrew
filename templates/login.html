@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SimpleCrew - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+</head>
+<body>
+    <div class="data-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+        <div style="max-width: 450px; width: 100%; padding: 0 20px;">
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 40px;">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">🏦</div>
+                    <h1 style="font-size: 28px; font-weight: 600; color: var(--text-dark); margin: 0 0 8px 0;">SimpleCrew</h1>
+                    <p style="font-size: 15px; color: var(--text-light); margin: 0;">Sign in to access your financial dashboard</p>
+                </div>
+
+                <form id="loginForm">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Username</label>
+                        <input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username"
+                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Password</label>
+                        <input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password"
+                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                    </div>
+
+                    <div id="errorMessage" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none; font-size: 14px;"></div>
+
+                    <button type="submit" style="width: 100%; background: var(--simple-blue); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px;">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <p style="font-size: 13px; color: var(--text-light);">SimpleCrew - Personal Finance Management</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    errorDiv.textContent = data.error || 'Login failed';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
