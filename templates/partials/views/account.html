@@ -1,0 +1,199 @@
+<div id="view-account" class="view-section">
+    <div class="section-header-row"><span class="tab-title">My Account</span></div>
+    <div class="data-container" style="padding: 40px 20px;">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <div style="text-align: center; margin-bottom: 40px;">
+                <div style="font-size: 48px; margin-bottom: 20px;">⚙️</div>
+                <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Account Settings</h1>
+                <p style="font-size: 18px; color: var(--text-light); line-height: 1.6;">
+                    Manage your API credentials and account configuration.
+                </p>
+            </div>
+
+            <!-- Crew Banking Configuration -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🏦</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Crew Banking</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Primary banking connection</p>
+                        </div>
+                    </div>
+                    <div id="crew-status-badge"></div>
+                </div>
+
+                <div id="crew-config-form" style="display: none;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Bearer Token</label>
+                        <input type="password" id="crew-token-input" placeholder="Enter Crew bearer token" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
+                            Find this in your Crew account settings under API access.
+                        </p>
+                    </div>
+                    <div id="crew-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="saveCrewToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Save Token
+                        </button>
+                        <button onclick="cancelCrewEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <div id="crew-config-display" style="display: none;">
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="editCrewToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Update Token
+                        </button>
+                        <button onclick="testCrewConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SimpleFin Configuration -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🔐</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">SimpleFin</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Credit card transaction sync</p>
+                        </div>
+                    </div>
+                    <div id="simplefin-status-badge"></div>
+                </div>
+
+                <div id="simplefin-config-form" style="display: none;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Setup Token</label>
+                        <input type="password" id="simplefin-token-input" placeholder="Enter SimpleFin setup token" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
+                            Get your setup token from <a href="https://bridge.simplefin.org/simplefin/claim" target="_blank" style="color: var(--simple-blue);">SimpleFin Bridge</a>.
+                        </p>
+                    </div>
+                    <div id="simplefin-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="saveSimpleFinToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Save Token
+                        </button>
+                        <button onclick="cancelSimpleFinEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <div id="simplefin-config-display" style="display: none;">
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="editSimpleFinToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Update Token
+                        </button>
+                        <button onclick="testSimpleFinConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LunchFlow Configuration -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🍱</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">LunchFlow</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Alternative credit card sync</p>
+                        </div>
+                    </div>
+                    <div id="lunchflow-status-badge"></div>
+                </div>
+
+                <div id="lunchflow-config-form" style="display: none;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">API Key</label>
+                        <input type="password" id="lunchflow-apikey-input" placeholder="Enter LunchFlow API key" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
+                            Get your API key from <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow Dashboard</a>.
+                        </p>
+                    </div>
+                    <div id="lunchflow-account-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="saveLunchFlowKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Save API Key
+                        </button>
+                        <button onclick="cancelLunchFlowEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <div id="lunchflow-config-display" style="display: none;">
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="editLunchFlowKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Update API Key
+                        </button>
+                        <button onclick="testLunchFlowConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Splitwise Configuration -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">📊</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Splitwise</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Expense sharing integration</p>
+                        </div>
+                    </div>
+                    <div id="splitwise-status-badge"></div>
+                </div>
+
+                <div id="splitwise-config-form" style="display: none;">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">API Key</label>
+                        <input type="password" id="splitwise-apikey-input" placeholder="Enter Splitwise API key" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
+                            Get your API key from <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--simple-blue);">Splitwise Apps</a> (register an app to get an API key).
+                        </p>
+                    </div>
+                    <div id="splitwise-account-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="saveSplitwiseKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Save API Key
+                        </button>
+                        <button onclick="cancelSplitwiseEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <div id="splitwise-config-display" style="display: none;">
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="editSplitwiseKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Update API Key
+                        </button>
+                        <button onclick="testSplitwiseConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Section -->
+            <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; margin-top: 32px;">
+                <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">💡 Security Note</h4>
+                <p style="font-size: 14px; color: var(--text-light); line-height: 1.6; margin: 0;">
+                    Your credentials are stored securely in your local database and are never transmitted except when validating against the respective APIs.
+                    Always keep your API keys and tokens private.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

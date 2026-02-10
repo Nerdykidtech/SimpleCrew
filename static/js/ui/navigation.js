@@ -8,6 +8,7 @@
  * @requires api/cards.js (loadCards)
  * @requires api/credit.js (loadCreditSetup, cleanupCreditCardIntervals)
  * @requires api/splitwise.js (loadSplitwiseSetup)
+ * @requires api/account.js (loadAccountSettings)
  * @requires features/autorefresh.js (startTransactionAutoRefresh, stopTransactionAutoRefresh)
  */
 
@@ -70,6 +71,9 @@ function switchTab(tab) {
     if(tab === 'splitwise') {
         loadSplitwiseSetup();
     }
+    if(tab === 'account') {
+        loadAccountSettings();
+    }
 }
 
 // Helper to toggle accordion
@@ -122,3 +126,31 @@ function updateCreditCardToggleButton() {
         btn.textContent = showCreditCardPockets ? '💳 Hide CC' : '💳 Show CC';
     }
 }
+
+function toggleUserMenu(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('user-dropdown');
+    const arrow = document.getElementById('user-menu-arrow');
+
+    const isShowing = dropdown.classList.contains('show');
+
+    if (isShowing) {
+        dropdown.classList.remove('show');
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    } else {
+        dropdown.classList.add('show');
+        if (arrow) arrow.style.transform = 'rotate(180deg)';
+    }
+}
+
+// Close user dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('user-dropdown');
+    const userProfile = document.querySelector('.user-profile');
+
+    if (dropdown && !userProfile.contains(e.target)) {
+        dropdown.classList.remove('show');
+        const arrow = document.getElementById('user-menu-arrow');
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+});

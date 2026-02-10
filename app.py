@@ -1938,6 +1938,374 @@ def api_complete_onboarding():
 
     return jsonify({"success": True})
 
+# --- ACCOUNT SETTINGS API ROUTES ---
+@app.route('/api/account/credentials/status')
+def api_get_credentials_status():
+    """Get status of all configured credentials (without exposing actual values)"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Check Crew token
+        c.execute("SELECT bearer_token, is_valid FROM crew_config WHERE is_valid = 1 LIMIT 1")
+        crew_row = c.fetchone()
+        crew_configured = crew_row is not None and crew_row[0] is not None
+
+        # Check SimpleFin access URL
+        c.execute("SELECT access_url, is_valid FROM simplefin_config LIMIT 1")
+        simplefin_row = c.fetchone()
+        simplefin_configured = simplefin_row is not None and simplefin_row[0] is not None
+
+        # Check LunchFlow API key
+        c.execute("SELECT api_key, is_valid FROM lunchflow_config WHERE is_valid = 1 LIMIT 1")
+        lunchflow_row = c.fetchone()
+        lunchflow_configured = lunchflow_row is not None and lunchflow_row[0] is not None
+
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "credentials": {
+                "crew": {
+                    "configured": crew_configured,
+                    "valid": crew_row[1] if crew_row else False
+                },
+                "simplefin": {
+                    "configured": simplefin_configured,
+                    "valid": simplefin_row[1] if simplefin_row else False
+                },
+                "lunchflow": {
+                    "configured": lunchflow_configured,
+                    "valid": lunchflow_row[1] if lunchflow_row else False
+                },
+                "splitwise": {
+                    "configured": bool(get_splitwise_api_key()),
+                    "valid": True  # If it exists, it's valid (validated on save)
+                }
+            }
+        })
+    except Exception as e:
+        print(f"Error getting credentials status: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/account/crew/update-token', methods=['POST'])
+def api_account_update_crew_token():
+    """Update Crew bearer token from account settings"""
+    data = request.get_json()
+    bearer_token = data.get('token', '').strip()
+
+    if not bearer_token:
+        return jsonify({"success": False, "error": "Token is required"}), 400
+
+    # Validate token by attempting to fetch user data
+    try:
+        headers = {
+            "accept": "*/*",
+            "content-type": "application/json",
+            "authorization": bearer_token,
+            "user-agent": "Crew/1 CFNetwork/3860.300.31 Darwin/25.2.0"
+        }
+        query_string = """ query CurrentUser { currentUser { id accounts { id } } } """
+        response = requests.post(
+            "https://api.trycrew.com/willow/graphql",
+            headers=headers,
+            json={"operationName": "CurrentUser", "query": query_string},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid token - authentication failed"}), 400
+
+        # Check if response contains valid user data
+        result = response.json()
+        if "errors" in result or not result.get("data", {}).get("currentUser"):
+            return jsonify({"success": False, "error": "Invalid token"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Token validation failed: {str(e)}"}), 500
+
+    # Save to database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM crew_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE crew_config SET bearer_token = ?, is_valid = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (bearer_token, existing[0]))
+    else:
+        c.execute("INSERT INTO crew_config (bearer_token, is_valid) VALUES (?, 1)", (bearer_token,))
+
+    conn.commit()
+    conn.close()
+
+    cache.clear()
+    return jsonify({"success": True, "message": "Crew token updated successfully"})
+
+@app.route('/api/account/crew/test', methods=['POST'])
+def api_account_test_crew():
+    """Test Crew connection with stored token"""
+    bearer_token = get_crew_bearer_token()
+
+    if not bearer_token:
+        return jsonify({"success": False, "error": "No Crew token configured"}), 400
+
+    try:
+        headers = {
+            "accept": "*/*",
+            "content-type": "application/json",
+            "authorization": bearer_token,
+            "user-agent": "Crew/1 CFNetwork/3860.300.31 Darwin/25.2.0"
+        }
+        query_string = """ query CurrentUser { currentUser { id firstName lastName } } """
+        response = requests.post(
+            "https://api.trycrew.com/willow/graphql",
+            headers=headers,
+            json={"operationName": "CurrentUser", "query": query_string},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Connection failed - authentication error"}), 400
+
+        result = response.json()
+        if "errors" in result or not result.get("data", {}).get("currentUser"):
+            return jsonify({"success": False, "error": "Invalid token"}), 400
+
+        user = result["data"]["currentUser"]
+        return jsonify({
+            "success": True,
+            "message": f"Connected successfully as {user.get('firstName', '')} {user.get('lastName', '')}".strip() or "User"
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
+
+@app.route('/api/account/simplefin/update-token', methods=['POST'])
+def api_account_update_simplefin_token():
+    """Update SimpleFin access token from account settings"""
+    data = request.get_json()
+    setup_token = data.get('token', '').strip()
+
+    if not setup_token:
+        return jsonify({"success": False, "error": "Setup token is required"}), 400
+
+    # Validate and claim token
+    try:
+        import base64
+
+        # Decode the base64 token to get the claim URL
+        decoded = base64.b64decode(setup_token).decode('utf-8')
+
+        # Make a POST request to claim the token
+        response = requests.post(decoded, timeout=10)
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid setup token"}), 400
+
+        # The response contains the access URL
+        access_url = response.text.strip()
+
+        if not access_url or not access_url.startswith('http'):
+            return jsonify({"success": False, "error": "Invalid response from SimpleFin"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Token validation failed: {str(e)}"}), 500
+
+    # Save access URL to database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM simplefin_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE simplefin_config SET access_url = ?, is_valid = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (access_url, existing[0]))
+    else:
+        c.execute("INSERT INTO simplefin_config (access_url, is_valid) VALUES (?, 1)", (access_url,))
+
+    conn.commit()
+    conn.close()
+
+    cache.clear()
+    return jsonify({"success": True, "message": "SimpleFin token updated successfully"})
+
+@app.route('/api/account/simplefin/test', methods=['POST'])
+def api_account_test_simplefin():
+    """Test SimpleFin connection"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT access_url FROM simplefin_config LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            return jsonify({"success": False, "error": "No SimpleFin access URL configured"}), 400
+
+        access_url = row[0]
+
+        # Test the connection by fetching accounts with balances-only flag
+        response = requests.get(f"{access_url}/accounts?balances-only=1", timeout=10)
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": f"Connection failed with status {response.status_code}"}), 400
+
+        data = response.json()
+        account_count = len(data.get('accounts', []))
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected successfully. Found {account_count} account(s)."
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
+
+@app.route('/api/account/lunchflow/update-key', methods=['POST'])
+def api_account_update_lunchflow_key():
+    """Update LunchFlow API key from account settings"""
+    data = request.get_json()
+    api_key = data.get('apiKey', '').strip()
+
+    if not api_key:
+        return jsonify({"success": False, "error": "API key is required"}), 400
+
+    # Validate key by attempting to fetch accounts
+    try:
+        response = requests.get(
+            "https://www.lunchflow.app/api/v1/accounts",
+            headers={"x-api-key": api_key},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid API key"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Validation failed: {str(e)}"}), 500
+
+    # Save to database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM lunchflow_config LIMIT 1")
+    existing = c.fetchone()
+
+    if existing:
+        c.execute("UPDATE lunchflow_config SET api_key = ?, is_valid = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (api_key, existing[0]))
+    else:
+        c.execute("INSERT INTO lunchflow_config (api_key, is_valid) VALUES (?, 1)", (api_key,))
+
+    conn.commit()
+    conn.close()
+
+    cache.clear()
+    return jsonify({"success": True, "message": "LunchFlow API key updated successfully"})
+
+@app.route('/api/account/lunchflow/test', methods=['POST'])
+def api_account_test_lunchflow():
+    """Test LunchFlow connection"""
+    api_key = get_lunchflow_api_key()
+
+    if not api_key:
+        return jsonify({"success": False, "error": "No LunchFlow API key configured"}), 400
+
+    try:
+        response = requests.get(
+            "https://www.lunchflow.app/api/v1/accounts",
+            headers={"x-api-key": api_key},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": f"Connection failed with status {response.status_code}"}), 400
+
+        data = response.json()
+        account_count = len(data.get('accounts', []))
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected successfully. Found {account_count} account(s)."
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
+
+@app.route('/api/account/splitwise/update-key', methods=['POST'])
+def api_account_update_splitwise_key():
+    """Update Splitwise API key from account settings"""
+    data = request.get_json()
+    api_key = data.get('apiKey', '').strip()
+
+    if not api_key:
+        return jsonify({"success": False, "error": "API key is required"}), 400
+
+    # Validate by getting current user
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_current_user",
+            headers=headers,
+            timeout=30
+        )
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Network error: {str(e)}"}), 500
+
+    if response.status_code == 200:
+        user_data = response.json().get("user", {})
+        user_id = user_data.get("id")
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("DELETE FROM splitwise_config")  # Clear old
+        c.execute("INSERT INTO splitwise_config (api_key, user_id, is_valid) VALUES (?, ?, 1)",
+                  (api_key, user_id))
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "message": "Splitwise API key updated successfully"})
+    else:
+        return jsonify({"success": False, "error": "Invalid API key"}), 400
+
+@app.route('/api/account/splitwise/test', methods=['POST'])
+def api_account_test_splitwise():
+    """Test Splitwise connection"""
+    api_key = get_splitwise_api_key()
+
+    if not api_key:
+        return jsonify({"success": False, "error": "No Splitwise API key configured"}), 400
+
+    try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_current_user",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": f"Connection failed with status {response.status_code}"}), 400
+
+        user_data = response.json().get("user", {})
+        first_name = user_data.get("first_name", "")
+        last_name = user_data.get("last_name", "")
+        name = f"{first_name} {last_name}".strip() or "User"
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected successfully as {name}."
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
+
 # --- API ROUTES ---
 @app.route('/api/family')
 def api_family(): return jsonify(get_family_data())
