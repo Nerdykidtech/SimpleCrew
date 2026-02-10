@@ -217,6 +217,77 @@
                 </form>
             </div>
 
+            <!-- Passkey Management Section -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🔑</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Passkeys</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Passwordless login with Face ID, Touch ID, or security keys</p>
+                        </div>
+                    </div>
+                    <button id="addPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                        + Add Passkey
+                    </button>
+                </div>
+
+                <div id="passkeysList" style="margin-top: 20px;">
+                    <p style="color: var(--text-light); text-align: center;">Loading passkeys...</p>
+                </div>
+            </div>
+
+            <!-- WebAuthn Configuration Section -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">⚙️</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Passkey Configuration</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Configure domain settings for passkey authentication</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="max-width: 600px;">
+                    <div style="background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: start; gap: 12px;">
+                            <div style="font-size: 20px;">ℹ️</div>
+                            <div style="font-size: 13px; color: var(--text-light); line-height: 1.5;">
+                                <strong style="color: var(--text-dark);">For localhost development:</strong> Use <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">localhost</code> and <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">http://localhost:8080</code><br>
+                                <strong style="color: var(--text-dark); margin-top: 8px; display: block;">For production:</strong> Use your domain (e.g., <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">example.com</code>) and HTTPS URL (e.g., <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">https://example.com</code>)
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="webauthnConfigForm">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">
+                                Relying Party ID (RP_ID)
+                                <span style="font-weight: normal; color: var(--text-light); font-size: 13px;">— Your domain name</span>
+                            </label>
+                            <input type="text" id="webauthnRpId" placeholder="localhost" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">
+                                Origin URL
+                                <span style="font-weight: normal; color: var(--text-light); font-size: 13px;">— Your full application URL</span>
+                            </label>
+                            <input type="text" id="webauthnOrigin" placeholder="http://localhost:8080" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                        </div>
+                        <div id="webauthnConfigMessage" style="padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+                        <div style="display: flex; gap: 12px;">
+                            <button type="submit" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                                Save Configuration
+                            </button>
+                            <button type="button" onclick="testWebAuthnConfig()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                                Test Configuration
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
             <!-- Info Section -->
             <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; margin-top: 32px;">
                 <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">💡 Security Note</h4>
@@ -264,4 +335,260 @@ document.getElementById('changePasswordForm')?.addEventListener('submit', async 
         messageDiv.textContent = '✗ Network error. Please try again.';
     }
 });
+
+// Passkey management functions
+async function loadPasskeys() {
+    try {
+        const response = await fetch('/api/auth/passkeys');
+        const data = await response.json();
+
+        const container = document.getElementById('passkeysList');
+
+        if (data.passkeys.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-light); text-align: center;">No passkeys registered. Add one to enable passwordless login!</p>';
+            return;
+        }
+
+        container.innerHTML = data.passkeys.map(passkey => `
+            <div style="background: var(--bg-elevated); border: 2px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${passkey.nickname}</div>
+                    <div style="font-size: 13px; color: var(--text-light);">
+                        Created: ${new Date(passkey.createdAt).toLocaleDateString()}
+                        ${passkey.lastUsedAt ? ` • Last used: ${new Date(passkey.lastUsedAt).toLocaleDateString()}` : ''}
+                        ${passkey.isSynced ? ' • 🔄 Synced' : ''}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button onclick="renamePasskey(${passkey.id})" style="background: transparent; border: 2px solid var(--border-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                        Rename
+                    </button>
+                    <button onclick="deletePasskey(${passkey.id})" style="background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                        Remove
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Failed to load passkeys:', error);
+        document.getElementById('passkeysList').innerHTML = '<p style="color: #dc3545;">Failed to load passkeys</p>';
+    }
+}
+
+// Helper function to decode base64url to Uint8Array
+function base64urlToUint8Array(base64url) {
+    // Convert base64url to base64
+    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+    // Decode base64 to binary string
+    const binaryString = atob(base64);
+    // Convert binary string to Uint8Array
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+}
+
+// Helper function to encode Uint8Array to base64url
+function uint8ArrayToBase64url(uint8Array) {
+    const binaryString = String.fromCharCode(...uint8Array);
+    const base64 = btoa(binaryString);
+    // Convert base64 to base64url
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// Add passkey
+document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => {
+    const nickname = prompt('Name this passkey (e.g., "My iPhone", "Security Key"):');
+    if (!nickname) return;
+
+    try {
+        // Get registration options
+        const optionsRes = await fetch('/api/auth/webauthn/register/options', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const { sessionId, options } = await optionsRes.json();
+
+        // Parse options and convert base64url strings to Uint8Arrays
+        const parsedOptions = JSON.parse(options);
+        const publicKey = {
+            ...parsedOptions,
+            challenge: base64urlToUint8Array(parsedOptions.challenge),
+            user: {
+                ...parsedOptions.user,
+                id: base64urlToUint8Array(parsedOptions.user.id)
+            }
+        };
+
+        // Create credential
+        const credential = await navigator.credentials.create({ publicKey });
+
+        // Prepare credential for server (convert Uint8Arrays back to base64url)
+        const credentialJSON = {
+            id: credential.id,
+            rawId: uint8ArrayToBase64url(new Uint8Array(credential.rawId)),
+            type: credential.type,
+            response: {
+                attestationObject: uint8ArrayToBase64url(new Uint8Array(credential.response.attestationObject)),
+                clientDataJSON: uint8ArrayToBase64url(new Uint8Array(credential.response.clientDataJSON)),
+                transports: credential.response.getTransports ? credential.response.getTransports() : []
+            }
+        };
+
+        // Verify with server
+        const verifyRes = await fetch('/api/auth/webauthn/register/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, credential: credentialJSON, nickname })
+        });
+
+        const result = await verifyRes.json();
+        if (result.success) {
+            alert('Passkey added successfully!');
+            loadPasskeys();
+        } else {
+            alert(result.error || 'Failed to add passkey');
+        }
+
+    } catch (error) {
+        console.error('Passkey registration error:', error);
+        alert('Failed to create passkey. Make sure your device supports passkeys.');
+    }
+});
+
+// Rename passkey
+async function renamePasskey(passkeyId) {
+    const nickname = prompt('Enter new name:');
+    if (!nickname) return;
+
+    try {
+        const response = await fetch(`/api/auth/passkeys/${passkeyId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nickname })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            loadPasskeys();
+        } else {
+            alert(result.error || 'Failed to rename');
+        }
+    } catch (error) {
+        alert('Network error');
+    }
+}
+
+// Delete passkey
+async function deletePasskey(passkeyId) {
+    if (!confirm('Are you sure you want to remove this passkey?')) return;
+
+    try {
+        const response = await fetch(`/api/auth/passkeys/${passkeyId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            loadPasskeys();
+        } else {
+            alert(result.error || 'Failed to delete');
+        }
+    } catch (error) {
+        alert('Network error');
+    }
+}
+
+// Load passkeys when account tab is opened
+if (document.getElementById('passkeysList')) {
+    loadPasskeys();
+}
+
+// WebAuthn Configuration Management
+async function loadWebAuthnConfig() {
+    try {
+        const response = await fetch('/api/account/webauthn/config');
+        const data = await response.json();
+
+        document.getElementById('webauthnRpId').value = data.rp_id || '';
+        document.getElementById('webauthnOrigin').value = data.origin || '';
+    } catch (error) {
+        console.error('Failed to load WebAuthn config:', error);
+    }
+}
+
+// Test WebAuthn configuration
+async function testWebAuthnConfig() {
+    const rpId = document.getElementById('webauthnRpId').value;
+    const origin = document.getElementById('webauthnOrigin').value;
+    const messageDiv = document.getElementById('webauthnConfigMessage');
+
+    try {
+        const response = await fetch('/api/account/webauthn/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rp_id: rpId, origin: origin })
+        });
+
+        const data = await response.json();
+        messageDiv.style.display = 'block';
+
+        if (data.success) {
+            messageDiv.style.background = '#d4edda';
+            messageDiv.style.color = '#155724';
+            messageDiv.textContent = '✓ ' + data.message;
+        } else {
+            messageDiv.style.background = '#f8d7da';
+            messageDiv.style.color = '#721c24';
+            messageDiv.textContent = '✗ ' + data.error;
+        }
+    } catch (error) {
+        messageDiv.style.display = 'block';
+        messageDiv.style.background = '#f8d7da';
+        messageDiv.style.color = '#721c24';
+        messageDiv.textContent = '✗ Network error. Please try again.';
+    }
+}
+
+// Save WebAuthn configuration
+document.getElementById('webauthnConfigForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const rpId = document.getElementById('webauthnRpId').value;
+    const origin = document.getElementById('webauthnOrigin').value;
+    const messageDiv = document.getElementById('webauthnConfigMessage');
+
+    try {
+        const response = await fetch('/api/account/webauthn/update-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rp_id: rpId, origin: origin })
+        });
+
+        const data = await response.json();
+        messageDiv.style.display = 'block';
+
+        if (data.success) {
+            messageDiv.style.background = '#d4edda';
+            messageDiv.style.color = '#155724';
+            messageDiv.textContent = '✓ ' + data.message;
+        } else {
+            messageDiv.style.background = '#f8d7da';
+            messageDiv.style.color = '#721c24';
+            messageDiv.textContent = '✗ ' + data.error;
+        }
+    } catch (error) {
+        messageDiv.style.display = 'block';
+        messageDiv.style.background = '#f8d7da';
+        messageDiv.style.color = '#721c24';
+        messageDiv.textContent = '✗ Network error. Please try again.';
+    }
+});
+
+// Load WebAuthn config when account tab is opened
+if (document.getElementById('webauthnConfigForm')) {
+    loadWebAuthnConfig();
+}
 </script>

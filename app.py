@@ -9,6 +9,25 @@ from datetime import datetime, date, timedelta
 from flask import Flask, render_template, jsonify, request, send_from_directory, redirect
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
+from webauthn.helpers import (
+    parse_registration_credential_json,
+    parse_authentication_credential_json,
+)
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    UserVerificationRequirement,
+    PublicKeyCredentialDescriptor,
+    AuthenticatorTransport,
+    AttestationConveyancePreference,
+)
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 app = Flask(__name__)
 
@@ -69,6 +88,11 @@ def load_user(user_id):
     if row:
         return User(row[0], row[1], row[2])
     return None
+
+# WebAuthn configuration
+RP_ID = os.environ.get('RP_ID', 'localhost')  # Relying Party ID (your domain)
+RP_NAME = "SimpleCrew"
+ORIGIN = os.environ.get('ORIGIN', 'http://localhost:8080')
 
 # Global flag to ensure background thread starts only once
 _background_thread_started = False
@@ -471,6 +495,48 @@ def init_db():
         last_login TEXT
     )''')
 
+    # Passkey/WebAuthn credentials table
+    c.execute('''CREATE TABLE IF NOT EXISTS passkey_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        credential_id BLOB NOT NULL UNIQUE,
+        public_key BLOB NOT NULL,
+        sign_count INTEGER DEFAULT 0,
+        transports TEXT,
+        aaguid TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TEXT,
+        nickname TEXT,
+        backup_eligible INTEGER DEFAULT 0,
+        backup_state INTEGER DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )''')
+
+    # WebAuthn session tracking (for registration/authentication ceremonies)
+    c.execute('''CREATE TABLE IF NOT EXISTS webauthn_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER,
+        challenge BLOB NOT NULL,
+        operation TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )''')
+
+    # Create indexes for faster passkey lookups
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_passkey_credential ON passkey_credentials(credential_id)''')
+
+    # WebAuthn configuration (RP_ID and ORIGIN for passkeys)
+    c.execute('''CREATE TABLE IF NOT EXISTS webauthn_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rp_id TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     conn.commit()
 
     # Auto-migrate env vars to database on first run
@@ -526,6 +592,81 @@ def get_history():
         "values": [row[1] for row in data]
     }
 
+# --- WEBAUTHN HELPER FUNCTIONS ---
+def generate_challenge():
+    """Generate cryptographically secure 32-byte challenge"""
+    return os.urandom(32)
+
+def get_user_credentials(user_id):
+    """Get all passkey credentials for a user"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT credential_id, public_key, sign_count, transports, nickname
+        FROM passkey_credentials
+        WHERE user_id = ?
+        ORDER BY last_used_at DESC NULLS LAST, created_at DESC
+    """, (user_id,))
+    rows = c.fetchall()
+    conn.close()
+
+    credentials = []
+    for row in rows:
+        credentials.append({
+            'credential_id': row[0],
+            'public_key': row[1],
+            'sign_count': row[2],
+            'transports': json.loads(row[3]) if row[3] else [],
+            'nickname': row[4]
+        })
+    return credentials
+
+def save_credential(user_id, credential_data):
+    """Save new passkey credential to database"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("""
+        INSERT INTO passkey_credentials
+        (user_id, credential_id, public_key, sign_count, transports, aaguid, backup_eligible, backup_state)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        credential_data['credential_id'],
+        credential_data['public_key'],
+        credential_data['sign_count'],
+        json.dumps(credential_data.get('transports', [])),
+        credential_data.get('aaguid', ''),
+        credential_data.get('backup_eligible', 0),
+        credential_data.get('backup_state', 0)
+    ))
+
+    conn.commit()
+    conn.close()
+
+def update_sign_count(credential_id, new_sign_count):
+    """Update sign count after successful authentication"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE passkey_credentials
+        SET sign_count = ?, last_used_at = ?
+        WHERE credential_id = ?
+    """, (new_sign_count, datetime.now().isoformat(), credential_id))
+
+    conn.commit()
+    conn.close()
+
+def cleanup_expired_sessions():
+    """Remove expired WebAuthn challenges"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM webauthn_sessions WHERE expires_at < ?",
+              (datetime.now().isoformat(),))
+    conn.commit()
+    conn.close()
+
 # --- TOKEN RETRIEVAL HELPERS ---
 def get_crew_bearer_token():
     """Get Crew bearer token (database first, then env var fallback)"""
@@ -573,6 +714,34 @@ def get_splitwise_user_id():
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+def get_webauthn_rp_id():
+    """Get WebAuthn Relying Party ID (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rp_id FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var or default
+    return os.environ.get('RP_ID', 'localhost')
+
+def get_webauthn_origin():
+    """Get WebAuthn origin URL (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT origin FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var or default
+    return os.environ.get('ORIGIN', 'http://localhost:8080')
 
 # --- API HELPERS ---
 def get_crew_headers():
@@ -2005,6 +2174,389 @@ def api_change_password():
     conn.close()
     return jsonify({"success": False, "error": "Current password is incorrect"}), 401
 
+# --- WEBAUTHN/PASSKEY ENDPOINTS ---
+
+def base64url_to_bytes(base64url_string):
+    """Convert base64url string to bytes"""
+    import base64
+    # Add padding if needed
+    padding = 4 - (len(base64url_string) % 4)
+    if padding != 4:
+        base64url_string += '=' * padding
+    # Convert base64url to base64
+    base64_string = base64url_string.replace('-', '+').replace('_', '/')
+    # Decode to bytes
+    return base64.b64decode(base64_string)
+
+@app.route('/api/auth/webauthn/register/options', methods=['POST'])
+@login_required
+def webauthn_register_options():
+    """Generate options for passkey registration"""
+    user = current_user
+
+    # Generate registration options
+    options = generate_registration_options(
+        rp_id=get_webauthn_rp_id(),
+        rp_name=RP_NAME,
+        user_id=str(user.id).encode('utf-8'),
+        user_name=user.username,
+        user_display_name=user.username,
+        attestation=AttestationConveyancePreference.NONE,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            user_verification=UserVerificationRequirement.PREFERRED
+        ),
+        supported_pub_key_algs=[
+            COSEAlgorithmIdentifier.ECDSA_SHA_256,
+            COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
+        ],
+    )
+
+    # Store challenge in database with 15-minute expiration
+    session_id = os.urandom(16).hex()
+    expires_at = datetime.now() + timedelta(minutes=15)
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO webauthn_sessions (id, user_id, challenge, operation, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session_id, user.id, options.challenge, 'register', expires_at.isoformat()))
+    conn.commit()
+    conn.close()
+
+    # Cleanup expired sessions
+    cleanup_expired_sessions()
+
+    return jsonify({
+        "sessionId": session_id,
+        "options": options_to_json(options)
+    })
+
+@app.route('/api/auth/webauthn/register/verify', methods=['POST'])
+@login_required
+def webauthn_register_verify():
+    """Verify passkey registration response"""
+    data = request.json
+    session_id = data.get('sessionId')
+    credential = data.get('credential')
+    nickname = data.get('nickname', 'Passkey')
+
+    # Retrieve challenge from database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT challenge, user_id, expires_at FROM webauthn_sessions
+        WHERE id = ? AND operation = 'register'
+    """, (session_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Invalid session"}), 400
+
+    challenge, user_id, expires_at = row
+
+    # Check if session expired
+    if datetime.fromisoformat(expires_at) < datetime.now():
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": False, "error": "Session expired"}), 400
+
+    # Verify user matches
+    if user_id != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "User mismatch"}), 403
+
+    try:
+        # Parse credential JSON using webauthn library helper
+        parsed_credential = parse_registration_credential_json(credential)
+
+        # Verify registration response
+        verification = verify_registration_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_origin=get_webauthn_origin(),
+            expected_rp_id=get_webauthn_rp_id(),
+        )
+
+        # Save credential to database
+        save_credential(current_user.id, {
+            'credential_id': verification.credential_id,
+            'public_key': verification.credential_public_key,
+            'sign_count': verification.sign_count,
+            'transports': credential.get('response', {}).get('transports', []),
+            'aaguid': str(verification.aaguid) if verification.aaguid else '',
+            'backup_eligible': getattr(verification, 'credential_backup_eligible', 0),
+            'backup_state': getattr(verification, 'credential_backed_up', 0),
+        })
+
+        # Update credential nickname
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE passkey_credentials
+            SET nickname = ?
+            WHERE credential_id = ?
+        """, (nickname, verification.credential_id))
+        conn.commit()
+
+        # Delete used session
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        conn.close()
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/auth/webauthn/authenticate/options', methods=['POST'])
+def webauthn_authenticate_options():
+    """Generate options for passkey authentication"""
+    data = request.json
+    username = data.get('username')
+
+    if not username:
+        return jsonify({"success": False, "error": "Username required"}), 400
+
+    # Get user by username
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    user_id = row[0]
+
+    # Get user's registered credentials
+    credentials = get_user_credentials(user_id)
+
+    if not credentials:
+        conn.close()
+        return jsonify({"success": False, "error": "No passkeys registered"}), 400
+
+    # Build allowed credentials list
+    allow_credentials = []
+    for cred in credentials:
+        allow_credentials.append(
+            PublicKeyCredentialDescriptor(
+                id=cred['credential_id'],
+                transports=[AuthenticatorTransport(t) for t in cred['transports']] if cred['transports'] else []
+            )
+        )
+
+    # Generate authentication options
+    options = generate_authentication_options(
+        rp_id=get_webauthn_rp_id(),
+        allow_credentials=allow_credentials,
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+
+    # Store challenge
+    session_id = os.urandom(16).hex()
+    expires_at = datetime.now() + timedelta(minutes=15)
+
+    c.execute("""
+        INSERT INTO webauthn_sessions (id, user_id, challenge, operation, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session_id, user_id, options.challenge, 'authenticate', expires_at.isoformat()))
+    conn.commit()
+    conn.close()
+
+    cleanup_expired_sessions()
+
+    return jsonify({
+        "sessionId": session_id,
+        "options": options_to_json(options)
+    })
+
+@app.route('/api/auth/webauthn/authenticate/verify', methods=['POST'])
+def webauthn_authenticate_verify():
+    """Verify passkey authentication response"""
+    data = request.json
+    session_id = data.get('sessionId')
+    credential = data.get('credential')
+
+    # Retrieve challenge
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT challenge, user_id, expires_at FROM webauthn_sessions
+        WHERE id = ? AND operation = 'authenticate'
+    """, (session_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Invalid session"}), 400
+
+    challenge, user_id, expires_at = row
+
+    # Check expiration
+    if datetime.fromisoformat(expires_at) < datetime.now():
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": False, "error": "Session expired"}), 400
+
+    # Parse credential JSON using webauthn library helper
+    try:
+        parsed_credential = parse_authentication_credential_json(credential)
+    except Exception as e:
+        conn.close()
+        return jsonify({"success": False, "error": f"Failed to parse credential: {str(e)}"}), 400
+
+    # Convert base64url credential_id to bytes for database lookup
+    credential_id_bytes = base64url_to_bytes(credential['rawId'])
+
+    # Get credential from database
+    c.execute("""
+        SELECT public_key, sign_count, user_id FROM passkey_credentials
+        WHERE credential_id = ?
+    """, (credential_id_bytes,))
+    cred_row = c.fetchone()
+
+    if not cred_row:
+        conn.close()
+        return jsonify({"success": False, "error": "Credential not found"}), 404
+
+    public_key, current_sign_count, cred_user_id = cred_row
+
+    # Verify user matches
+    if cred_user_id != user_id:
+        conn.close()
+        return jsonify({"success": False, "error": "Credential/user mismatch"}), 403
+
+    try:
+        # Verify authentication response
+        verification = verify_authentication_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_origin=get_webauthn_origin(),
+            expected_rp_id=get_webauthn_rp_id(),
+            credential_public_key=public_key,
+            credential_current_sign_count=current_sign_count,
+        )
+
+        # Update sign count
+        update_sign_count(credential_id_bytes, verification.new_sign_count)
+
+        # Get user data and create session
+        c.execute("SELECT id, username, email FROM users WHERE id = ?", (user_id,))
+        user_row = c.fetchone()
+
+        if user_row:
+            user = User(user_row[0], user_row[1], user_row[2])
+            login_user(user)
+
+            # Update last login
+            c.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                      (datetime.now().isoformat(), user_id))
+            conn.commit()
+
+        # Delete used session
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        conn.close()
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/auth/passkeys')
+@login_required
+def api_list_passkeys():
+    """List user's registered passkeys"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, credential_id, nickname, created_at, last_used_at, transports, backup_state
+        FROM passkey_credentials
+        WHERE user_id = ?
+        ORDER BY last_used_at DESC NULLS LAST, created_at DESC
+    """, (current_user.id,))
+
+    passkeys = []
+    for row in c.fetchall():
+        passkeys.append({
+            'id': row[0],
+            'credentialId': row[1].hex(),
+            'nickname': row[2] or 'Passkey',
+            'createdAt': row[3],
+            'lastUsedAt': row[4],
+            'transports': json.loads(row[5]) if row[5] else [],
+            'isSynced': bool(row[6])
+        })
+
+    conn.close()
+    return jsonify({"passkeys": passkeys})
+
+@app.route('/api/auth/passkeys/<int:passkey_id>', methods=['DELETE'])
+@login_required
+def api_delete_passkey(passkey_id):
+    """Delete a passkey credential"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Verify ownership
+    c.execute("SELECT user_id FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Passkey not found"}), 404
+
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    # Delete credential
+    c.execute("DELETE FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+@app.route('/api/auth/passkeys/<int:passkey_id>', methods=['PATCH'])
+@login_required
+def api_update_passkey(passkey_id):
+    """Update passkey nickname"""
+    data = request.json
+    nickname = data.get('nickname', '').strip()
+
+    if not nickname:
+        return jsonify({"success": False, "error": "Nickname required"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Verify ownership
+    c.execute("SELECT user_id FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Passkey not found"}), 404
+
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    # Update nickname
+    c.execute("UPDATE passkey_credentials SET nickname = ? WHERE id = ?",
+              (nickname, passkey_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
 @app.route('/')
 @login_required
 def index():
@@ -2510,6 +3062,115 @@ def api_account_test_splitwise():
 
     except Exception as e:
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
+
+@app.route('/api/account/webauthn/config', methods=['GET'])
+@login_required
+def api_account_get_webauthn_config():
+    """Get WebAuthn configuration (RP_ID and ORIGIN)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rp_id, origin, is_valid FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row:
+        return jsonify({
+            "configured": True,
+            "rp_id": row[0],
+            "origin": row[1]
+        })
+    else:
+        # Return env var defaults if not configured in database
+        return jsonify({
+            "configured": False,
+            "rp_id": os.environ.get('RP_ID', 'localhost'),
+            "origin": os.environ.get('ORIGIN', 'http://localhost:8080')
+        })
+
+@app.route('/api/account/webauthn/update-config', methods=['POST'])
+@login_required
+def api_account_update_webauthn_config():
+    """Update WebAuthn configuration (RP_ID and ORIGIN)"""
+    data = request.json
+    rp_id = data.get('rp_id', '').strip()
+    origin = data.get('origin', '').strip()
+
+    if not rp_id:
+        return jsonify({"success": False, "error": "RP_ID is required"}), 400
+
+    if not origin:
+        return jsonify({"success": False, "error": "Origin is required"}), 400
+
+    # Validate origin format (should start with http:// or https://)
+    if not origin.startswith('http://') and not origin.startswith('https://'):
+        return jsonify({"success": False, "error": "Origin must start with http:// or https://"}), 400
+
+    # Validate that origin doesn't have trailing slash
+    if origin.endswith('/'):
+        origin = origin[:-1]
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Mark all existing configs as invalid
+        c.execute("UPDATE webauthn_config SET is_valid = 0")
+
+        # Insert new config
+        c.execute("""
+            INSERT INTO webauthn_config (rp_id, origin, is_valid)
+            VALUES (?, ?, 1)
+        """, (rp_id, origin))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "WebAuthn configuration updated successfully"
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Failed to update configuration: {str(e)}"}), 500
+
+@app.route('/api/account/webauthn/test', methods=['POST'])
+@login_required
+def api_account_test_webauthn():
+    """Test WebAuthn configuration (validates format)"""
+    data = request.json
+    rp_id = data.get('rp_id', '').strip()
+    origin = data.get('origin', '').strip()
+
+    if not rp_id:
+        return jsonify({"success": False, "error": "RP_ID is required"}), 400
+
+    if not origin:
+        return jsonify({"success": False, "error": "Origin is required"}), 400
+
+    # Validate origin format
+    if not origin.startswith('http://') and not origin.startswith('https://'):
+        return jsonify({"success": False, "error": "Origin must start with http:// or https://"}), 400
+
+    # Validate production HTTPS requirement
+    if 'localhost' not in rp_id and '127.0.0.1' not in rp_id:
+        if not origin.startswith('https://'):
+            return jsonify({
+                "success": False,
+                "error": "Production deployments require HTTPS. Origin must start with https://"
+            }), 400
+
+    # Validate RP_ID matches origin domain
+    origin_domain = origin.replace('https://', '').replace('http://', '').split(':')[0]
+    if rp_id != origin_domain and not origin_domain.endswith('.' + rp_id):
+        return jsonify({
+            "success": False,
+            "error": f"RP_ID '{rp_id}' must match origin domain '{origin_domain}'"
+        }), 400
+
+    return jsonify({
+        "success": True,
+        "message": "Configuration is valid"
+    })
 
 # --- API ROUTES ---
 @app.route('/api/family')
