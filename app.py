@@ -26,6 +26,7 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     AuthenticatorTransport,
     AttestationConveyancePreference,
+    ResidentKeyRequirement,
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
@@ -2193,16 +2194,22 @@ def base64url_to_bytes(base64url_string):
 def webauthn_register_options():
     """Generate options for passkey registration"""
     user = current_user
+    rp_id = get_webauthn_rp_id()
+    origin = get_webauthn_origin()
+
+    print(f"[WebAuthn Register] User: {user.username}, RP_ID: {rp_id}, Origin: {origin}")
+    print(f"[WebAuthn Register] User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
 
     # Generate registration options
     options = generate_registration_options(
-        rp_id=get_webauthn_rp_id(),
+        rp_id=rp_id,
         rp_name=RP_NAME,
         user_id=str(user.id).encode('utf-8'),
         user_name=user.username,
         user_display_name=user.username,
         attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,  # Enable discoverable credentials
             user_verification=UserVerificationRequirement.PREFERRED
         ),
         supported_pub_key_algs=[
@@ -2227,6 +2234,8 @@ def webauthn_register_options():
     # Cleanup expired sessions
     cleanup_expired_sessions()
 
+    print(f"[WebAuthn Register] Generated session {session_id}")
+
     return jsonify({
         "sessionId": session_id,
         "options": options_to_json(options)
@@ -2241,6 +2250,10 @@ def webauthn_register_verify():
     credential = data.get('credential')
     nickname = data.get('nickname', 'Passkey')
 
+    print(f"[WebAuthn Register Verify] Session: {session_id}, Nickname: {nickname}")
+    print(f"[WebAuthn Register Verify] Credential ID: {credential.get('id', 'N/A')[:20]}...")
+    print(f"[WebAuthn Register Verify] Credential type: {credential.get('type', 'N/A')}")
+
     # Retrieve challenge from database
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -2252,6 +2265,7 @@ def webauthn_register_verify():
 
     if not row:
         conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: Invalid session {session_id}")
         return jsonify({"success": False, "error": "Invalid session"}), 400
 
     challenge, user_id, expires_at = row
@@ -2261,14 +2275,20 @@ def webauthn_register_verify():
         c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
         conn.commit()
         conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: Session expired {session_id}")
         return jsonify({"success": False, "error": "Session expired"}), 400
 
     # Verify user matches
     if user_id != current_user.id:
         conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: User mismatch")
         return jsonify({"success": False, "error": "User mismatch"}), 403
 
     try:
+        rp_id = get_webauthn_rp_id()
+        origin = get_webauthn_origin()
+        print(f"[WebAuthn Register Verify] Using RP_ID: {rp_id}, Origin: {origin}")
+
         # Parse credential JSON using webauthn library helper
         parsed_credential = parse_registration_credential_json(credential)
 
@@ -2276,9 +2296,11 @@ def webauthn_register_verify():
         verification = verify_registration_response(
             credential=parsed_credential,
             expected_challenge=challenge,
-            expected_origin=get_webauthn_origin(),
-            expected_rp_id=get_webauthn_rp_id(),
+            expected_origin=origin,
+            expected_rp_id=rp_id,
         )
+
+        print(f"[WebAuthn Register Verify] Verification successful!")
 
         # Save credential to database
         save_credential(current_user.id, {
@@ -2306,58 +2328,78 @@ def webauthn_register_verify():
         conn.commit()
         conn.close()
 
+        print(f"[WebAuthn Register Verify] Passkey saved successfully")
         return jsonify({"success": True})
 
     except Exception as e:
         conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route('/api/auth/webauthn/authenticate/options', methods=['POST'])
 def webauthn_authenticate_options():
-    """Generate options for passkey authentication"""
+    """Generate options for passkey authentication (supports username-less login)"""
     data = request.json
     username = data.get('username')
 
-    if not username:
-        return jsonify({"success": False, "error": "Username required"}), 400
+    print(f"[WebAuthn Auth] Username: {username if username else '(discoverable credential mode)'}")
+    print(f"[WebAuthn Auth] User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
 
-    # Get user by username
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE username = ?", (username,))
-    row = c.fetchone()
 
-    if not row:
-        conn.close()
-        return jsonify({"success": False, "error": "User not found"}), 404
-
-    user_id = row[0]
-
-    # Get user's registered credentials
-    credentials = get_user_credentials(user_id)
-
-    if not credentials:
-        conn.close()
-        return jsonify({"success": False, "error": "No passkeys registered"}), 400
-
-    # Build allowed credentials list
+    user_id = None
     allow_credentials = []
-    for cred in credentials:
-        allow_credentials.append(
-            PublicKeyCredentialDescriptor(
-                id=cred['credential_id'],
-                transports=[AuthenticatorTransport(t) for t in cred['transports']] if cred['transports'] else []
+
+    if username:
+        # Traditional mode: username provided, filter to user's credentials
+        c.execute("SELECT id FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            print(f"[WebAuthn Auth] ERROR: User not found: {username}")
+            return jsonify({"success": False, "error": "User not found"}), 404
+
+        user_id = row[0]
+
+        # Get user's registered credentials
+        credentials = get_user_credentials(user_id)
+
+        if not credentials:
+            conn.close()
+            print(f"[WebAuthn Auth] ERROR: No passkeys registered for user {username}")
+            return jsonify({"success": False, "error": "No passkeys registered"}), 400
+
+        print(f"[WebAuthn Auth] Found {len(credentials)} passkey(s) for user {username}")
+
+        # Build allowed credentials list
+        for cred in credentials:
+            allow_credentials.append(
+                PublicKeyCredentialDescriptor(
+                    id=cred['credential_id'],
+                    transports=[AuthenticatorTransport(t) for t in cred['transports']] if cred['transports'] else []
+                )
             )
-        )
+    else:
+        # Discoverable credential mode: no username, browser will show all available passkeys
+        print(f"[WebAuthn Auth] Using discoverable credentials (no username provided)")
+        # allow_credentials remains empty - browser will prompt for any stored passkey
 
     # Generate authentication options
+    rp_id = get_webauthn_rp_id()
+    origin = get_webauthn_origin()
+    print(f"[WebAuthn Auth] Using RP_ID: {rp_id}, Origin: {origin}")
+
     options = generate_authentication_options(
-        rp_id=get_webauthn_rp_id(),
-        allow_credentials=allow_credentials,
+        rp_id=rp_id,
+        allow_credentials=allow_credentials if allow_credentials else None,  # Empty list allows discoverable credentials
         user_verification=UserVerificationRequirement.PREFERRED,
     )
 
-    # Store challenge
+    # Store challenge (user_id can be None for discoverable mode)
     session_id = os.urandom(16).hex()
     expires_at = datetime.now() + timedelta(minutes=15)
 
@@ -2369,6 +2411,8 @@ def webauthn_authenticate_options():
     conn.close()
 
     cleanup_expired_sessions()
+
+    print(f"[WebAuthn Auth] Generated session {session_id}")
 
     return jsonify({
         "sessionId": session_id,
@@ -2382,6 +2426,9 @@ def webauthn_authenticate_verify():
     session_id = data.get('sessionId')
     credential = data.get('credential')
 
+    print(f"[WebAuthn Auth Verify] Session: {session_id}")
+    print(f"[WebAuthn Auth Verify] Credential ID: {credential.get('id', 'N/A')[:20]}...")
+
     # Retrieve challenge
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -2393,6 +2440,7 @@ def webauthn_authenticate_verify():
 
     if not row:
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Invalid session {session_id}")
         return jsonify({"success": False, "error": "Invalid session"}), 400
 
     challenge, user_id, expires_at = row
@@ -2402,6 +2450,7 @@ def webauthn_authenticate_verify():
         c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
         conn.commit()
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Session expired {session_id}")
         return jsonify({"success": False, "error": "Session expired"}), 400
 
     # Parse credential JSON using webauthn library helper
@@ -2409,6 +2458,7 @@ def webauthn_authenticate_verify():
         parsed_credential = parse_authentication_credential_json(credential)
     except Exception as e:
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Failed to parse credential: {str(e)}")
         return jsonify({"success": False, "error": f"Failed to parse credential: {str(e)}"}), 400
 
     # Convert base64url credential_id to bytes for database lookup
@@ -2423,25 +2473,39 @@ def webauthn_authenticate_verify():
 
     if not cred_row:
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Credential not found in database")
         return jsonify({"success": False, "error": "Credential not found"}), 404
 
     public_key, current_sign_count, cred_user_id = cred_row
 
-    # Verify user matches
-    if cred_user_id != user_id:
+    # Verify user matches (if user_id was provided in session)
+    # If user_id is None, we're in discoverable credential mode - use credential's user_id
+    if user_id is not None and cred_user_id != user_id:
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Credential/user mismatch")
         return jsonify({"success": False, "error": "Credential/user mismatch"}), 403
 
+    # Use credential's user_id for discoverable mode
+    if user_id is None:
+        user_id = cred_user_id
+        print(f"[WebAuthn Auth Verify] Discoverable mode: identified user_id {user_id}")
+
     try:
+        rp_id = get_webauthn_rp_id()
+        origin = get_webauthn_origin()
+        print(f"[WebAuthn Auth Verify] Using RP_ID: {rp_id}, Origin: {origin}")
+
         # Verify authentication response
         verification = verify_authentication_response(
             credential=parsed_credential,
             expected_challenge=challenge,
-            expected_origin=get_webauthn_origin(),
-            expected_rp_id=get_webauthn_rp_id(),
+            expected_origin=origin,
+            expected_rp_id=rp_id,
             credential_public_key=public_key,
             credential_current_sign_count=current_sign_count,
         )
+
+        print(f"[WebAuthn Auth Verify] Verification successful!")
 
         # Update sign count
         update_sign_count(credential_id_bytes, verification.new_sign_count)
@@ -2464,11 +2528,26 @@ def webauthn_authenticate_verify():
         conn.commit()
         conn.close()
 
+        print(f"[WebAuthn Auth Verify] Login successful!")
         return jsonify({"success": True})
 
     except Exception as e:
         conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/auth/passkeys/available')
+def api_passkeys_available():
+    """Check if any passkeys are registered in the system (public endpoint for login page)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM passkey_credentials")
+    count = c.fetchone()[0]
+    conn.close()
+
+    return jsonify({"available": count > 0})
 
 @app.route('/api/auth/passkeys')
 @login_required

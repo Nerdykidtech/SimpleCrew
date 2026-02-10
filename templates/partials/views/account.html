@@ -227,9 +227,26 @@
                             <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Passwordless login with Face ID, Touch ID, or security keys</p>
                         </div>
                     </div>
-                    <button id="addPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                    <button id="showAddPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
                         + Add Passkey
                     </button>
+                </div>
+
+                <!-- Add Passkey Form (hidden by default) -->
+                <div id="addPasskeyForm" style="display: none; background: var(--bg-elevated); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 16px 0;">Add New Passkey</h4>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Nickname</label>
+                        <input type="text" id="passkeyNickname" placeholder='e.g., "My iPhone", "Security Key"' style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <button id="addPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; flex: 1;">
+                            Create Passkey
+                        </button>
+                        <button id="cancelAddPasskeyBtn" style="background: transparent; color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Cancel
+                        </button>
+                    </div>
                 </div>
 
                 <div id="passkeysList" style="margin-top: 20px;">
@@ -398,22 +415,57 @@ function uint8ArrayToBase64url(uint8Array) {
     return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-// Add passkey
+// Show/hide add passkey form
+document.getElementById('showAddPasskeyBtn')?.addEventListener('click', () => {
+    document.getElementById('addPasskeyForm').style.display = 'block';
+    document.getElementById('passkeyNickname').value = '';
+    document.getElementById('passkeyNickname').focus();
+});
+
+document.getElementById('cancelAddPasskeyBtn')?.addEventListener('click', () => {
+    document.getElementById('addPasskeyForm').style.display = 'none';
+});
+
+// Add passkey - NO PROMPT, direct from button click
 document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => {
-    const nickname = prompt('Name this passkey (e.g., "My iPhone", "Security Key"):');
-    if (!nickname) return;
+    const nickname = document.getElementById('passkeyNickname').value.trim();
+    if (!nickname) {
+        alert('Please enter a nickname for this passkey');
+        return;
+    }
+
+    console.log('[Passkey Registration] Starting passkey registration...');
+    console.log('[Passkey Registration] Nickname:', nickname);
+    console.log('[Passkey Registration] User agent:', navigator.userAgent);
+    console.log('[Passkey Registration] WebAuthn support:', !!navigator.credentials);
 
     try {
+        console.log('[Passkey Registration] Step 1: Requesting registration options...');
         // Get registration options
         const optionsRes = await fetch('/api/auth/webauthn/register/options', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
 
-        const { sessionId, options } = await optionsRes.json();
+        console.log('[Passkey Registration] Options response status:', optionsRes.status);
 
+        if (!optionsRes.ok) {
+            const error = await optionsRes.json();
+            console.error('[Passkey Registration] ERROR getting options:', error);
+            alert('Failed to get registration options: ' + (error.error || 'Unknown error'));
+            return;
+        }
+
+        const { sessionId, options } = await optionsRes.json();
+        console.log('[Passkey Registration] Session ID:', sessionId);
+        console.log('[Passkey Registration] Options received:', options.substring(0, 100) + '...');
+
+        console.log('[Passkey Registration] Step 2: Parsing options...');
         // Parse options and convert base64url strings to Uint8Arrays
         const parsedOptions = JSON.parse(options);
+        console.log('[Passkey Registration] Challenge length:', parsedOptions.challenge.length);
+        console.log('[Passkey Registration] User ID length:', parsedOptions.user.id.length);
+
         const publicKey = {
             ...parsedOptions,
             challenge: base64urlToUint8Array(parsedOptions.challenge),
@@ -423,9 +475,13 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
             }
         };
 
+        console.log('[Passkey Registration] Step 3: Creating credential...');
         // Create credential
         const credential = await navigator.credentials.create({ publicKey });
+        console.log('[Passkey Registration] Credential created:', credential.id.substring(0, 20) + '...');
+        console.log('[Passkey Registration] Credential type:', credential.type);
 
+        console.log('[Passkey Registration] Step 4: Preparing credential for server...');
         // Prepare credential for server (convert Uint8Arrays back to base64url)
         const credentialJSON = {
             id: credential.id,
@@ -438,6 +494,9 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
             }
         };
 
+        console.log('[Passkey Registration] Transports:', credentialJSON.response.transports);
+
+        console.log('[Passkey Registration] Step 5: Verifying with server...');
         // Verify with server
         const verifyRes = await fetch('/api/auth/webauthn/register/verify', {
             method: 'POST',
@@ -445,17 +504,23 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
             body: JSON.stringify({ sessionId, credential: credentialJSON, nickname })
         });
 
+        console.log('[Passkey Registration] Verify response status:', verifyRes.status);
+
         const result = await verifyRes.json();
         if (result.success) {
+            console.log('[Passkey Registration] SUCCESS! Passkey registered.');
             alert('Passkey added successfully!');
+            document.getElementById('addPasskeyForm').style.display = 'none';
             loadPasskeys();
         } else {
-            alert(result.error || 'Failed to add passkey');
+            console.error('[Passkey Registration] ERROR: Verification failed:', result.error);
+            alert('Failed to add passkey: ' + (result.error || 'Unknown error'));
         }
 
     } catch (error) {
-        console.error('Passkey registration error:', error);
-        alert('Failed to create passkey. Make sure your device supports passkeys.');
+        console.error('[Passkey Registration] EXCEPTION:', error.name, error.message);
+        console.error('[Passkey Registration] Stack trace:', error.stack);
+        alert('Failed to create passkey: ' + error.message + '. Make sure your device supports passkeys.');
     }
 });
 
