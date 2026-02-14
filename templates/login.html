@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimpleCrew - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+</head>
+<body>
+    <div class="data-container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+        <div style="max-width: 450px; width: 100%; padding: 0 20px;">
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 40px;">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">🏦</div>
+                    <h1 style="font-size: 28px; font-weight: 600; color: var(--text-dark); margin: 0 0 8px 0;">SimpleCrew</h1>
+                    <p style="font-size: 15px; color: var(--text-light); margin: 0;">Sign in to access your financial dashboard</p>
+                </div>
+
+                <!-- Passkey Login Button -->
+                <div id="passkeyLoginSection" style="margin-bottom: 20px; display: none;">
+                    <button type="button" id="passkeyLoginBtn" style="width: 100%; padding: 14px; background: var(--simple-blue); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                        <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+                            <path d="M12.65 10C11.7 7.31 8.9 5.5 5.77 6.12c-2.29.46-4.15 2.29-4.63 4.58C.32 14.57 3.26 18 7 18h2v-2H7c-2.57 0-4.68-2.07-4.68-4.64 0-2.52 2.01-4.58 4.54-4.58 2.53 0 4.59 2.06 4.59 4.58V12h2.21c2.51 0 4.55 2.04 4.55 4.55S18.17 21.1 15.66 21.1H14v2h1.66c3.59 0 6.51-2.92 6.51-6.51S19.25 10.08 15.66 10.08h-.01z"/>
+                        </svg>
+                        Sign in with Passkey
+                    </button>
+                    <div style="text-align: center; margin-top: 8px; color: var(--text-light); font-size: 13px;">
+                        Fast, secure, no password needed
+                    </div>
+
+                    <div style="text-align: center; margin: 20px 0;">
+                        <button type="button" id="showPasswordLoginBtn" style="background: transparent; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; text-decoration: underline;">
+                            Use password instead
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Password Login Form (hidden by default) -->
+                <div id="passwordLoginForm" style="display: none;">
+                    <div style="text-align: center; margin-bottom: 20px; color: var(--text-light); font-size: 14px;">
+                        — or —
+                    </div>
+
+                    <form id="loginForm">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Username</label>
+                            <input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username"
+                                   style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+
+                        <div style="margin-bottom: 24px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Password</label>
+                            <input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password"
+                                   style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+
+                        <button type="submit" style="width: 100%; background: var(--simple-blue); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px;">
+                            Sign In
+                        </button>
+                    </form>
+                </div>
+
+                <div id="errorMessage" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-top: 16px; display: none; font-size: 14px;"></div>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <p style="font-size: 13px; color: var(--text-light);">SimpleCrew - Personal Finance Management</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if passkeys are available and conditionally show passkey-first UI
+        async function checkPasskeyAvailability() {
+            try {
+                const response = await fetch('/api/auth/passkeys/available');
+                const data = await response.json();
+
+                const passkeySection = document.getElementById('passkeyLoginSection');
+                const passwordSection = document.getElementById('passwordLoginForm');
+
+                if (data.available) {
+                    // Passkeys exist - show passkey-first flow
+                    passkeySection.style.display = 'block';
+                    passwordSection.style.display = 'none';
+                } else {
+                    // No passkeys - show password form directly
+                    passkeySection.style.display = 'none';
+                    passwordSection.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Failed to check passkey availability:', error);
+                // On error, default to showing password form
+                document.getElementById('passkeyLoginSection').style.display = 'none';
+                document.getElementById('passwordLoginForm').style.display = 'block';
+            }
+        }
+
+        // Check on page load
+        checkPasskeyAvailability();
+
+        // Show password login form when "Use password instead" is clicked
+        document.getElementById('showPasswordLoginBtn')?.addEventListener('click', () => {
+            document.getElementById('passwordLoginForm').style.display = 'block';
+            document.getElementById('showPasswordLoginBtn').style.display = 'none';
+            document.getElementById('username').focus();
+        });
+
+        // Password login form handler
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    errorDiv.textContent = data.error || 'Login failed';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        // Helper function to decode base64url to Uint8Array
+        function base64urlToUint8Array(base64url) {
+            const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        // Helper function to encode Uint8Array to base64url
+        function uint8ArrayToBase64url(uint8Array) {
+            const binaryString = String.fromCharCode(...uint8Array);
+            const base64 = btoa(binaryString);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        // Passkey login handler - supports username-less login with discoverable credentials
+        document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () => {
+            const username = document.getElementById('username').value.trim();
+            const errorDiv = document.getElementById('errorMessage');
+
+            console.log('[Passkey Login] Starting passkey authentication');
+            console.log('[Passkey Login] Username provided:', username ? 'yes' : 'no (discoverable mode)');
+            console.log('[Passkey Login] User agent:', navigator.userAgent);
+            console.log('[Passkey Login] WebAuthn support:', !!navigator.credentials);
+
+            try {
+                console.log('[Passkey Login] Step 1: Requesting authentication options...');
+                // Get authentication options (username is optional for discoverable credentials)
+                const optionsRes = await fetch('/api/auth/webauthn/authenticate/options', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: username || null })
+                });
+
+                console.log('[Passkey Login] Options response status:', optionsRes.status);
+
+                if (!optionsRes.ok) {
+                    const error = await optionsRes.json();
+                    console.error('[Passkey Login] ERROR getting options:', error);
+                    errorDiv.textContent = error.error || 'Failed to get authentication options';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
+                const { sessionId, options } = await optionsRes.json();
+                console.log('[Passkey Login] Session ID:', sessionId);
+                console.log('[Passkey Login] Options received:', options.substring(0, 100) + '...');
+
+                console.log('[Passkey Login] Step 2: Parsing options...');
+                // Parse options and convert base64url to Uint8Arrays
+                const parsedOptions = JSON.parse(options);
+                console.log('[Passkey Login] Challenge length:', parsedOptions.challenge.length);
+                console.log('[Passkey Login] Allowed credentials:', parsedOptions.allowCredentials.length);
+
+                const publicKey = {
+                    ...parsedOptions,
+                    challenge: base64urlToUint8Array(parsedOptions.challenge),
+                    allowCredentials: parsedOptions.allowCredentials.map(cred => ({
+                        ...cred,
+                        id: base64urlToUint8Array(cred.id)
+                    }))
+                };
+
+                console.log('[Passkey Login] Step 3: Requesting credential from authenticator...');
+                // Get credential from authenticator
+                const credential = await navigator.credentials.get({ publicKey });
+                console.log('[Passkey Login] Credential received:', credential.id.substring(0, 20) + '...');
+
+                console.log('[Passkey Login] Step 4: Preparing credential for server...');
+                // Prepare credential for server (convert to base64url)
+                const credentialJSON = {
+                    id: credential.id,
+                    rawId: uint8ArrayToBase64url(new Uint8Array(credential.rawId)),
+                    type: credential.type,
+                    response: {
+                        authenticatorData: uint8ArrayToBase64url(new Uint8Array(credential.response.authenticatorData)),
+                        clientDataJSON: uint8ArrayToBase64url(new Uint8Array(credential.response.clientDataJSON)),
+                        signature: uint8ArrayToBase64url(new Uint8Array(credential.response.signature)),
+                        userHandle: credential.response.userHandle ? uint8ArrayToBase64url(new Uint8Array(credential.response.userHandle)) : null
+                    }
+                };
+
+                console.log('[Passkey Login] Step 5: Verifying with server...');
+                // Verify with server
+                const verifyRes = await fetch('/api/auth/webauthn/authenticate/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId, credential: credentialJSON })
+                });
+
+                console.log('[Passkey Login] Verify response status:', verifyRes.status);
+
+                const result = await verifyRes.json();
+                if (result.success) {
+                    console.log('[Passkey Login] SUCCESS! Redirecting...');
+                    window.location.href = '/';
+                } else {
+                    console.error('[Passkey Login] ERROR: Verification failed:', result.error);
+                    errorDiv.textContent = result.error || 'Authentication failed';
+                    errorDiv.style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error('[Passkey Login] EXCEPTION:', error.name, error.message);
+                console.error('[Passkey Login] Stack trace:', error.stack);
+                errorDiv.textContent = 'Passkey authentication failed: ' + error.message + '. Please try password login.';
+                errorDiv.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

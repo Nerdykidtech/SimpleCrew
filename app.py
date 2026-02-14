@@ -6,7 +6,29 @@ import os
 import threading
 import json
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
+from webauthn.helpers import (
+    parse_registration_credential_json,
+    parse_authentication_credential_json,
+)
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    UserVerificationRequirement,
+    PublicKeyCredentialDescriptor,
+    AuthenticatorTransport,
+    AttestationConveyancePreference,
+    ResidentKeyRequirement,
+)
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 app = Flask(__name__)
 
@@ -14,6 +36,64 @@ app = Flask(__name__)
 URL = "https://api.trycrew.com/willow/graphql"
 # In app.py
 DB_FILE = os.environ.get("DB_FILE", "savings_data.db")
+
+def get_or_create_secret_key():
+    """Get secret key from database, or generate and save a new one"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Create app_config table if it doesn't exist
+    c.execute('''CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # Try to get existing secret key
+    c.execute("SELECT value FROM app_config WHERE key = 'secret_key' LIMIT 1")
+    row = c.fetchone()
+
+    if row:
+        secret_key = row[0]
+    else:
+        # Generate new secret key and save it
+        secret_key = os.urandom(24).hex()
+        c.execute("INSERT INTO app_config (key, value) VALUES ('secret_key', ?)", (secret_key,))
+        conn.commit()
+        print("✅ Generated and saved new SECRET_KEY to database")
+
+    conn.close()
+    return secret_key
+
+# Configure Flask-Login
+app.secret_key = get_or_create_secret_key()
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'  # Redirect to login page
+
+# User model
+class User(UserMixin):
+    def __init__(self, id, username, email):
+        self.id = id
+        self.username = username
+        self.email = email
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user from database for Flask-Login session"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, email FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return User(row[0], row[1], row[2])
+    return None
+
+# WebAuthn configuration
+RP_ID = os.environ.get('RP_ID', 'localhost')  # Relying Party ID (your domain)
+RP_NAME = "SimpleCrew"
+ORIGIN = os.environ.get('ORIGIN', 'http://localhost:8080')
 
 # Global flag to ensure background thread starts only once
 _background_thread_started = False
@@ -405,6 +485,59 @@ def init_db():
         c.execute("ALTER TABLE splitwise_pocket_config ADD COLUMN friend_name TEXT")
         conn.commit()
 
+    # User authentication table
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE,
+        password_hash TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_login TEXT
+    )''')
+
+    # Passkey/WebAuthn credentials table
+    c.execute('''CREATE TABLE IF NOT EXISTS passkey_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        credential_id BLOB NOT NULL UNIQUE,
+        public_key BLOB NOT NULL,
+        sign_count INTEGER DEFAULT 0,
+        transports TEXT,
+        aaguid TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TEXT,
+        nickname TEXT,
+        backup_eligible INTEGER DEFAULT 0,
+        backup_state INTEGER DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )''')
+
+    # WebAuthn session tracking (for registration/authentication ceremonies)
+    c.execute('''CREATE TABLE IF NOT EXISTS webauthn_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER,
+        challenge BLOB NOT NULL,
+        operation TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )''')
+
+    # Create indexes for faster passkey lookups
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_passkey_credential ON passkey_credentials(credential_id)''')
+
+    # WebAuthn configuration (RP_ID and ORIGIN for passkeys)
+    c.execute('''CREATE TABLE IF NOT EXISTS webauthn_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rp_id TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     conn.commit()
 
     # Auto-migrate env vars to database on first run
@@ -460,6 +593,81 @@ def get_history():
         "values": [row[1] for row in data]
     }
 
+# --- WEBAUTHN HELPER FUNCTIONS ---
+def generate_challenge():
+    """Generate cryptographically secure 32-byte challenge"""
+    return os.urandom(32)
+
+def get_user_credentials(user_id):
+    """Get all passkey credentials for a user"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT credential_id, public_key, sign_count, transports, nickname
+        FROM passkey_credentials
+        WHERE user_id = ?
+        ORDER BY last_used_at DESC NULLS LAST, created_at DESC
+    """, (user_id,))
+    rows = c.fetchall()
+    conn.close()
+
+    credentials = []
+    for row in rows:
+        credentials.append({
+            'credential_id': row[0],
+            'public_key': row[1],
+            'sign_count': row[2],
+            'transports': json.loads(row[3]) if row[3] else [],
+            'nickname': row[4]
+        })
+    return credentials
+
+def save_credential(user_id, credential_data):
+    """Save new passkey credential to database"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("""
+        INSERT INTO passkey_credentials
+        (user_id, credential_id, public_key, sign_count, transports, aaguid, backup_eligible, backup_state)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        credential_data['credential_id'],
+        credential_data['public_key'],
+        credential_data['sign_count'],
+        json.dumps(credential_data.get('transports', [])),
+        credential_data.get('aaguid', ''),
+        credential_data.get('backup_eligible', 0),
+        credential_data.get('backup_state', 0)
+    ))
+
+    conn.commit()
+    conn.close()
+
+def update_sign_count(credential_id, new_sign_count):
+    """Update sign count after successful authentication"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE passkey_credentials
+        SET sign_count = ?, last_used_at = ?
+        WHERE credential_id = ?
+    """, (new_sign_count, datetime.now().isoformat(), credential_id))
+
+    conn.commit()
+    conn.close()
+
+def cleanup_expired_sessions():
+    """Remove expired WebAuthn challenges"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM webauthn_sessions WHERE expires_at < ?",
+              (datetime.now().isoformat(),))
+    conn.commit()
+    conn.close()
+
 # --- TOKEN RETRIEVAL HELPERS ---
 def get_crew_bearer_token():
     """Get Crew bearer token (database first, then env var fallback)"""
@@ -507,6 +715,34 @@ def get_splitwise_user_id():
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+def get_webauthn_rp_id():
+    """Get WebAuthn Relying Party ID (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rp_id FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var or default
+    return os.environ.get('RP_ID', 'localhost')
+
+def get_webauthn_origin():
+    """Get WebAuthn origin URL (database first, then env var fallback)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT origin FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[0]:
+        return row[0]
+
+    # Fallback to env var or default
+    return os.environ.get('ORIGIN', 'http://localhost:8080')
 
 # --- API HELPERS ---
 def get_crew_headers():
@@ -1814,7 +2050,594 @@ def create_bill_action(name, amount, frequency_key, day_of_month, match_string=N
         return {"error": str(e)}
 
 # --- ROUTES ---
+
+# --- AUTHENTICATION ROUTES ---
+@app.route('/login')
+def login():
+    """Login page - shows registration form if no users exist"""
+    if current_user.is_authenticated:
+        return redirect('/')
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    user_count = c.fetchone()[0]
+    conn.close()
+
+    if user_count == 0:
+        return render_template('register.html')
+    return render_template('login.html')
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """Handle login form submission"""
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, username, email, password_hash FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+
+    if row and check_password_hash(row[3], password):
+        user = User(row[0], row[1], row[2])
+        login_user(user)
+
+        # Update last login
+        c.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                  (datetime.now().isoformat(), row[0]))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    conn.close()
+    return jsonify({"success": False, "error": "Invalid username or password"}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def api_logout():
+    """Handle logout"""
+    logout_user()
+    return jsonify({"success": True})
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    """Handle registration - only allowed if no users exist"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Check if users already exist (single-tenant model)
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] > 0:
+        conn.close()
+        return jsonify({"success": False, "error": "Registration is disabled"}), 403
+
+    data = request.json
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+
+    # Validate input
+    if not username or not password:
+        conn.close()
+        return jsonify({"success": False, "error": "Username and password required"}), 400
+
+    if len(password) < 8:
+        conn.close()
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
+
+    # Create user
+    password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+    try:
+        c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                  (username, email, password_hash))
+        conn.commit()
+        user_id = c.lastrowid
+        conn.close()
+
+        # Auto-login
+        user = User(user_id, username, email)
+        login_user(user)
+
+        return jsonify({"success": True})
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"success": False, "error": "Username already exists"}), 400
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """Handle password change"""
+    data = request.json
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+
+    if not current_password or not new_password:
+        return jsonify({"success": False, "error": "Both current and new passwords required"}), 400
+
+    if len(new_password) < 8:
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT password_hash FROM users WHERE id = ?", (current_user.id,))
+    row = c.fetchone()
+
+    if row and check_password_hash(row[0], current_password):
+        new_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+        c.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, current_user.id))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+
+    conn.close()
+    return jsonify({"success": False, "error": "Current password is incorrect"}), 401
+
+# --- WEBAUTHN/PASSKEY ENDPOINTS ---
+
+def base64url_to_bytes(base64url_string):
+    """Convert base64url string to bytes"""
+    import base64
+    # Add padding if needed
+    padding = 4 - (len(base64url_string) % 4)
+    if padding != 4:
+        base64url_string += '=' * padding
+    # Convert base64url to base64
+    base64_string = base64url_string.replace('-', '+').replace('_', '/')
+    # Decode to bytes
+    return base64.b64decode(base64_string)
+
+@app.route('/api/auth/webauthn/register/options', methods=['POST'])
+@login_required
+def webauthn_register_options():
+    """Generate options for passkey registration"""
+    user = current_user
+    rp_id = get_webauthn_rp_id()
+    origin = get_webauthn_origin()
+
+    print(f"[WebAuthn Register] User: {user.username}, RP_ID: {rp_id}, Origin: {origin}")
+    print(f"[WebAuthn Register] User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
+
+    # Generate registration options
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name=RP_NAME,
+        user_id=str(user.id).encode('utf-8'),
+        user_name=user.username,
+        user_display_name=user.username,
+        attestation=AttestationConveyancePreference.NONE,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,  # Enable discoverable credentials
+            user_verification=UserVerificationRequirement.PREFERRED
+        ),
+        supported_pub_key_algs=[
+            COSEAlgorithmIdentifier.ECDSA_SHA_256,
+            COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
+        ],
+    )
+
+    # Store challenge in database with 15-minute expiration
+    session_id = os.urandom(16).hex()
+    expires_at = datetime.now() + timedelta(minutes=15)
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO webauthn_sessions (id, user_id, challenge, operation, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session_id, user.id, options.challenge, 'register', expires_at.isoformat()))
+    conn.commit()
+    conn.close()
+
+    # Cleanup expired sessions
+    cleanup_expired_sessions()
+
+    print(f"[WebAuthn Register] Generated session {session_id}")
+
+    return jsonify({
+        "sessionId": session_id,
+        "options": options_to_json(options)
+    })
+
+@app.route('/api/auth/webauthn/register/verify', methods=['POST'])
+@login_required
+def webauthn_register_verify():
+    """Verify passkey registration response"""
+    data = request.json
+    session_id = data.get('sessionId')
+    credential = data.get('credential')
+    nickname = data.get('nickname', 'Passkey')
+
+    print(f"[WebAuthn Register Verify] Session: {session_id}, Nickname: {nickname}")
+    print(f"[WebAuthn Register Verify] Credential ID: {credential.get('id', 'N/A')[:20]}...")
+    print(f"[WebAuthn Register Verify] Credential type: {credential.get('type', 'N/A')}")
+
+    # Retrieve challenge from database
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT challenge, user_id, expires_at FROM webauthn_sessions
+        WHERE id = ? AND operation = 'register'
+    """, (session_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: Invalid session {session_id}")
+        return jsonify({"success": False, "error": "Invalid session"}), 400
+
+    challenge, user_id, expires_at = row
+
+    # Check if session expired
+    if datetime.fromisoformat(expires_at) < datetime.now():
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: Session expired {session_id}")
+        return jsonify({"success": False, "error": "Session expired"}), 400
+
+    # Verify user matches
+    if user_id != current_user.id:
+        conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: User mismatch")
+        return jsonify({"success": False, "error": "User mismatch"}), 403
+
+    try:
+        rp_id = get_webauthn_rp_id()
+        origin = get_webauthn_origin()
+        print(f"[WebAuthn Register Verify] Using RP_ID: {rp_id}, Origin: {origin}")
+
+        # Parse credential JSON using webauthn library helper
+        parsed_credential = parse_registration_credential_json(credential)
+
+        # Verify registration response
+        verification = verify_registration_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_origin=origin,
+            expected_rp_id=rp_id,
+        )
+
+        print(f"[WebAuthn Register Verify] Verification successful!")
+
+        # Save credential to database
+        save_credential(current_user.id, {
+            'credential_id': verification.credential_id,
+            'public_key': verification.credential_public_key,
+            'sign_count': verification.sign_count,
+            'transports': credential.get('response', {}).get('transports', []),
+            'aaguid': str(verification.aaguid) if verification.aaguid else '',
+            'backup_eligible': getattr(verification, 'credential_backup_eligible', 0),
+            'backup_state': getattr(verification, 'credential_backed_up', 0),
+        })
+
+        # Update credential nickname
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE passkey_credentials
+            SET nickname = ?
+            WHERE credential_id = ?
+        """, (nickname, verification.credential_id))
+        conn.commit()
+
+        # Delete used session
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+
+        print(f"[WebAuthn Register Verify] Passkey saved successfully")
+        return jsonify({"success": True})
+
+    except Exception as e:
+        conn.close()
+        print(f"[WebAuthn Register Verify] ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/auth/webauthn/authenticate/options', methods=['POST'])
+def webauthn_authenticate_options():
+    """Generate options for passkey authentication (supports username-less login)"""
+    data = request.json
+    username = data.get('username')
+
+    print(f"[WebAuthn Auth] Username: {username if username else '(discoverable credential mode)'}")
+    print(f"[WebAuthn Auth] User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    user_id = None
+    allow_credentials = []
+
+    if username:
+        # Traditional mode: username provided, filter to user's credentials
+        c.execute("SELECT id FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            print(f"[WebAuthn Auth] ERROR: User not found: {username}")
+            return jsonify({"success": False, "error": "User not found"}), 404
+
+        user_id = row[0]
+
+        # Get user's registered credentials
+        credentials = get_user_credentials(user_id)
+
+        if not credentials:
+            conn.close()
+            print(f"[WebAuthn Auth] ERROR: No passkeys registered for user {username}")
+            return jsonify({"success": False, "error": "No passkeys registered"}), 400
+
+        print(f"[WebAuthn Auth] Found {len(credentials)} passkey(s) for user {username}")
+
+        # Build allowed credentials list
+        for cred in credentials:
+            allow_credentials.append(
+                PublicKeyCredentialDescriptor(
+                    id=cred['credential_id'],
+                    transports=[AuthenticatorTransport(t) for t in cred['transports']] if cred['transports'] else []
+                )
+            )
+    else:
+        # Discoverable credential mode: no username, browser will show all available passkeys
+        print(f"[WebAuthn Auth] Using discoverable credentials (no username provided)")
+        # allow_credentials remains empty - browser will prompt for any stored passkey
+
+    # Generate authentication options
+    rp_id = get_webauthn_rp_id()
+    origin = get_webauthn_origin()
+    print(f"[WebAuthn Auth] Using RP_ID: {rp_id}, Origin: {origin}")
+
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        allow_credentials=allow_credentials if allow_credentials else None,  # Empty list allows discoverable credentials
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+
+    # Store challenge (user_id can be None for discoverable mode)
+    session_id = os.urandom(16).hex()
+    expires_at = datetime.now() + timedelta(minutes=15)
+
+    c.execute("""
+        INSERT INTO webauthn_sessions (id, user_id, challenge, operation, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session_id, user_id, options.challenge, 'authenticate', expires_at.isoformat()))
+    conn.commit()
+    conn.close()
+
+    cleanup_expired_sessions()
+
+    print(f"[WebAuthn Auth] Generated session {session_id}")
+
+    return jsonify({
+        "sessionId": session_id,
+        "options": options_to_json(options)
+    })
+
+@app.route('/api/auth/webauthn/authenticate/verify', methods=['POST'])
+def webauthn_authenticate_verify():
+    """Verify passkey authentication response"""
+    data = request.json
+    session_id = data.get('sessionId')
+    credential = data.get('credential')
+
+    print(f"[WebAuthn Auth Verify] Session: {session_id}")
+    print(f"[WebAuthn Auth Verify] Credential ID: {credential.get('id', 'N/A')[:20]}...")
+
+    # Retrieve challenge
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT challenge, user_id, expires_at FROM webauthn_sessions
+        WHERE id = ? AND operation = 'authenticate'
+    """, (session_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Invalid session {session_id}")
+        return jsonify({"success": False, "error": "Invalid session"}), 400
+
+    challenge, user_id, expires_at = row
+
+    # Check expiration
+    if datetime.fromisoformat(expires_at) < datetime.now():
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Session expired {session_id}")
+        return jsonify({"success": False, "error": "Session expired"}), 400
+
+    # Parse credential JSON using webauthn library helper
+    try:
+        parsed_credential = parse_authentication_credential_json(credential)
+    except Exception as e:
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Failed to parse credential: {str(e)}")
+        return jsonify({"success": False, "error": f"Failed to parse credential: {str(e)}"}), 400
+
+    # Convert base64url credential_id to bytes for database lookup
+    credential_id_bytes = base64url_to_bytes(credential['rawId'])
+
+    # Get credential from database
+    c.execute("""
+        SELECT public_key, sign_count, user_id FROM passkey_credentials
+        WHERE credential_id = ?
+    """, (credential_id_bytes,))
+    cred_row = c.fetchone()
+
+    if not cred_row:
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Credential not found in database")
+        return jsonify({"success": False, "error": "Credential not found"}), 404
+
+    public_key, current_sign_count, cred_user_id = cred_row
+
+    # Verify user matches (if user_id was provided in session)
+    # If user_id is None, we're in discoverable credential mode - use credential's user_id
+    if user_id is not None and cred_user_id != user_id:
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: Credential/user mismatch")
+        return jsonify({"success": False, "error": "Credential/user mismatch"}), 403
+
+    # Use credential's user_id for discoverable mode
+    if user_id is None:
+        user_id = cred_user_id
+        print(f"[WebAuthn Auth Verify] Discoverable mode: identified user_id {user_id}")
+
+    try:
+        rp_id = get_webauthn_rp_id()
+        origin = get_webauthn_origin()
+        print(f"[WebAuthn Auth Verify] Using RP_ID: {rp_id}, Origin: {origin}")
+
+        # Verify authentication response
+        verification = verify_authentication_response(
+            credential=parsed_credential,
+            expected_challenge=challenge,
+            expected_origin=origin,
+            expected_rp_id=rp_id,
+            credential_public_key=public_key,
+            credential_current_sign_count=current_sign_count,
+        )
+
+        print(f"[WebAuthn Auth Verify] Verification successful!")
+
+        # Update sign count
+        update_sign_count(credential_id_bytes, verification.new_sign_count)
+
+        # Get user data and create session
+        c.execute("SELECT id, username, email FROM users WHERE id = ?", (user_id,))
+        user_row = c.fetchone()
+
+        if user_row:
+            user = User(user_row[0], user_row[1], user_row[2])
+            login_user(user)
+
+            # Update last login
+            c.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                      (datetime.now().isoformat(), user_id))
+            conn.commit()
+
+        # Delete used session
+        c.execute("DELETE FROM webauthn_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+
+        print(f"[WebAuthn Auth Verify] Login successful!")
+        return jsonify({"success": True})
+
+    except Exception as e:
+        conn.close()
+        print(f"[WebAuthn Auth Verify] ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/auth/passkeys/available')
+def api_passkeys_available():
+    """Check if any passkeys are registered in the system (public endpoint for login page)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM passkey_credentials")
+    count = c.fetchone()[0]
+    conn.close()
+
+    return jsonify({"available": count > 0})
+
+@app.route('/api/auth/passkeys')
+@login_required
+def api_list_passkeys():
+    """List user's registered passkeys"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, credential_id, nickname, created_at, last_used_at, transports, backup_state
+        FROM passkey_credentials
+        WHERE user_id = ?
+        ORDER BY last_used_at DESC NULLS LAST, created_at DESC
+    """, (current_user.id,))
+
+    passkeys = []
+    for row in c.fetchall():
+        passkeys.append({
+            'id': row[0],
+            'credentialId': row[1].hex(),
+            'nickname': row[2] or 'Passkey',
+            'createdAt': row[3],
+            'lastUsedAt': row[4],
+            'transports': json.loads(row[5]) if row[5] else [],
+            'isSynced': bool(row[6])
+        })
+
+    conn.close()
+    return jsonify({"passkeys": passkeys})
+
+@app.route('/api/auth/passkeys/<int:passkey_id>', methods=['DELETE'])
+@login_required
+def api_delete_passkey(passkey_id):
+    """Delete a passkey credential"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Verify ownership
+    c.execute("SELECT user_id FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Passkey not found"}), 404
+
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    # Delete credential
+    c.execute("DELETE FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+@app.route('/api/auth/passkeys/<int:passkey_id>', methods=['PATCH'])
+@login_required
+def api_update_passkey(passkey_id):
+    """Update passkey nickname"""
+    data = request.json
+    nickname = data.get('nickname', '').strip()
+
+    if not nickname:
+        return jsonify({"success": False, "error": "Nickname required"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Verify ownership
+    c.execute("SELECT user_id FROM passkey_credentials WHERE id = ?", (passkey_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "Passkey not found"}), 404
+
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    # Update nickname
+    c.execute("UPDATE passkey_credentials SET nickname = ? WHERE id = ?",
+              (nickname, passkey_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
 @app.route('/')
+@login_required
 def index():
     # Check if onboarding is complete
     conn = sqlite3.connect(DB_FILE)
@@ -1831,6 +2654,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/debug')
+@login_required
 def debug(): return render_template('debug.html')
 
 # --- PWA ROUTES ---
@@ -1844,6 +2668,7 @@ def serve_sw():
 
 # --- ONBOARDING API ENDPOINTS ---
 @app.route('/api/onboarding/status')
+@login_required
 def api_onboarding_status():
     """Check if onboarding is complete"""
     conn = sqlite3.connect(DB_FILE)
@@ -1861,6 +2686,7 @@ def api_onboarding_status():
     })
 
 @app.route('/api/onboarding/crew/save-token', methods=['POST'])
+@login_required
 def api_save_crew_token():
     """Save and validate Crew bearer token"""
     data = request.get_json()
@@ -1915,6 +2741,7 @@ def api_save_crew_token():
     return jsonify({"success": True})
 
 @app.route('/api/onboarding/complete', methods=['POST'])
+@login_required
 def api_complete_onboarding():
     """Mark onboarding as complete"""
     # Verify token exists
@@ -1940,6 +2767,7 @@ def api_complete_onboarding():
 
 # --- ACCOUNT SETTINGS API ROUTES ---
 @app.route('/api/account/credentials/status')
+@login_required
 def api_get_credentials_status():
     """Get status of all configured credentials (without exposing actual values)"""
     try:
@@ -1991,6 +2819,7 @@ def api_get_credentials_status():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/account/crew/update-token', methods=['POST'])
+@login_required
 def api_account_update_crew_token():
     """Update Crew bearer token from account settings"""
     data = request.get_json()
@@ -2046,6 +2875,7 @@ def api_account_update_crew_token():
     return jsonify({"success": True, "message": "Crew token updated successfully"})
 
 @app.route('/api/account/crew/test', methods=['POST'])
+@login_required
 def api_account_test_crew():
     """Test Crew connection with stored token"""
     bearer_token = get_crew_bearer_token()
@@ -2085,6 +2915,7 @@ def api_account_test_crew():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/simplefin/update-token', methods=['POST'])
+@login_required
 def api_account_update_simplefin_token():
     """Update SimpleFin access token from account settings"""
     data = request.get_json()
@@ -2135,6 +2966,7 @@ def api_account_update_simplefin_token():
     return jsonify({"success": True, "message": "SimpleFin token updated successfully"})
 
 @app.route('/api/account/simplefin/test', methods=['POST'])
+@login_required
 def api_account_test_simplefin():
     """Test SimpleFin connection"""
     try:
@@ -2167,6 +2999,7 @@ def api_account_test_simplefin():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/lunchflow/update-key', methods=['POST'])
+@login_required
 def api_account_update_lunchflow_key():
     """Update LunchFlow API key from account settings"""
     data = request.get_json()
@@ -2209,6 +3042,7 @@ def api_account_update_lunchflow_key():
     return jsonify({"success": True, "message": "LunchFlow API key updated successfully"})
 
 @app.route('/api/account/lunchflow/test', methods=['POST'])
+@login_required
 def api_account_test_lunchflow():
     """Test LunchFlow connection"""
     api_key = get_lunchflow_api_key()
@@ -2238,6 +3072,7 @@ def api_account_test_lunchflow():
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
 @app.route('/api/account/splitwise/update-key', methods=['POST'])
+@login_required
 def api_account_update_splitwise_key():
     """Update Splitwise API key from account settings"""
     data = request.get_json()
@@ -2275,6 +3110,7 @@ def api_account_update_splitwise_key():
         return jsonify({"success": False, "error": "Invalid API key"}), 400
 
 @app.route('/api/account/splitwise/test', methods=['POST'])
+@login_required
 def api_account_test_splitwise():
     """Test Splitwise connection"""
     api_key = get_splitwise_api_key()
@@ -2306,10 +3142,121 @@ def api_account_test_splitwise():
     except Exception as e:
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
+@app.route('/api/account/webauthn/config', methods=['GET'])
+@login_required
+def api_account_get_webauthn_config():
+    """Get WebAuthn configuration (RP_ID and ORIGIN)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT rp_id, origin, is_valid FROM webauthn_config WHERE is_valid = 1 ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+
+    if row:
+        return jsonify({
+            "configured": True,
+            "rp_id": row[0],
+            "origin": row[1]
+        })
+    else:
+        # Return env var defaults if not configured in database
+        return jsonify({
+            "configured": False,
+            "rp_id": os.environ.get('RP_ID', 'localhost'),
+            "origin": os.environ.get('ORIGIN', 'http://localhost:8080')
+        })
+
+@app.route('/api/account/webauthn/update-config', methods=['POST'])
+@login_required
+def api_account_update_webauthn_config():
+    """Update WebAuthn configuration (RP_ID and ORIGIN)"""
+    data = request.json
+    rp_id = data.get('rp_id', '').strip()
+    origin = data.get('origin', '').strip()
+
+    if not rp_id:
+        return jsonify({"success": False, "error": "RP_ID is required"}), 400
+
+    if not origin:
+        return jsonify({"success": False, "error": "Origin is required"}), 400
+
+    # Validate origin format (should start with http:// or https://)
+    if not origin.startswith('http://') and not origin.startswith('https://'):
+        return jsonify({"success": False, "error": "Origin must start with http:// or https://"}), 400
+
+    # Validate that origin doesn't have trailing slash
+    if origin.endswith('/'):
+        origin = origin[:-1]
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Mark all existing configs as invalid
+        c.execute("UPDATE webauthn_config SET is_valid = 0")
+
+        # Insert new config
+        c.execute("""
+            INSERT INTO webauthn_config (rp_id, origin, is_valid)
+            VALUES (?, ?, 1)
+        """, (rp_id, origin))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "WebAuthn configuration updated successfully"
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Failed to update configuration: {str(e)}"}), 500
+
+@app.route('/api/account/webauthn/test', methods=['POST'])
+@login_required
+def api_account_test_webauthn():
+    """Test WebAuthn configuration (validates format)"""
+    data = request.json
+    rp_id = data.get('rp_id', '').strip()
+    origin = data.get('origin', '').strip()
+
+    if not rp_id:
+        return jsonify({"success": False, "error": "RP_ID is required"}), 400
+
+    if not origin:
+        return jsonify({"success": False, "error": "Origin is required"}), 400
+
+    # Validate origin format
+    if not origin.startswith('http://') and not origin.startswith('https://'):
+        return jsonify({"success": False, "error": "Origin must start with http:// or https://"}), 400
+
+    # Validate production HTTPS requirement
+    if 'localhost' not in rp_id and '127.0.0.1' not in rp_id:
+        if not origin.startswith('https://'):
+            return jsonify({
+                "success": False,
+                "error": "Production deployments require HTTPS. Origin must start with https://"
+            }), 400
+
+    # Validate RP_ID matches origin domain
+    origin_domain = origin.replace('https://', '').replace('http://', '').split(':')[0]
+    if rp_id != origin_domain and not origin_domain.endswith('.' + rp_id):
+        return jsonify({
+            "success": False,
+            "error": f"RP_ID '{rp_id}' must match origin domain '{origin_domain}'"
+        }), 400
+
+    return jsonify({
+        "success": True,
+        "message": "Configuration is valid"
+    })
+
 # --- API ROUTES ---
 @app.route('/api/family')
+@login_required
 def api_family(): return jsonify(get_family_data())
 @app.route('/api/cards')
+@login_required
 def api_cards():
     # Allow forcing a refresh if ?refresh=true is passed
     refresh = request.args.get('refresh') == 'true'
@@ -2317,6 +3264,7 @@ def api_cards():
 
 # 3. CREATE THE MISSING MOVE/REORDER ENDPOINT
 @app.route('/api/groups/move-pocket', methods=['POST'])
+@login_required
 def api_move_pocket():
     data = request.json
     
@@ -2349,6 +3297,7 @@ def api_move_pocket():
         conn.close()
 
 @app.route('/api/groups/manage', methods=['POST'])
+@login_required
 def api_manage_group():
     # Handles Create and Update
     data = request.json
@@ -2386,6 +3335,7 @@ def api_manage_group():
         conn.close()
 
 @app.route('/api/groups/delete', methods=['POST'])
+@login_required
 def api_delete_group():
     data = request.json
     group_id = data.get('id')
@@ -2407,6 +3357,7 @@ def api_delete_group():
 
 # --- NEW API ROUTE: Assign Group ---
 @app.route('/api/assign-group', methods=['POST'])
+@login_required
 def api_assign_group():
     data = request.json
     pocket_id = data.get('pocketId')
@@ -2430,6 +3381,7 @@ def api_assign_group():
         conn.close()
 
 @app.route('/api/set-card-spend', methods=['POST'])
+@login_required
 def api_set_card_spend():
     data = request.json
     return jsonify(set_spend_pocket_action(
@@ -2439,14 +3391,17 @@ def api_set_card_spend():
     ))
 
 @app.route('/api/savings')
+@login_required
 def api_savings():
     # Check if the frontend is asking for a forced refresh
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_financial_data(force_refresh=refresh))
 
 @app.route('/api/history')
+@login_required
 def api_history(): return jsonify(get_history())
 @app.route('/api/transactions')
+@login_required
 def api_transactions():
     q = request.args.get('q')
     min_date = request.args.get('minDate')
@@ -2531,6 +3486,7 @@ def api_transactions():
     return jsonify(result)
 
 @app.route('/api/pocket-transactions/<path:pocket_id>')
+@login_required
 def api_pocket_transactions(pocket_id):
     """Fetch transactions for a specific pocket/subaccount"""
     try:
@@ -2641,42 +3597,51 @@ def api_pocket_transactions(pocket_id):
         return jsonify({"error": str(e)})
 
 @app.route('/api/transaction/<path:tx_id>')
+@login_required
 def api_transaction_detail(tx_id): return jsonify(get_transaction_detail(tx_id))
 
 @app.route('/api/expenses')
+@login_required
 def api_expenses():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_expenses_data(force_refresh=refresh))
 
 @app.route('/api/goals')
+@login_required
 def api_goals():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_goals_data(force_refresh=refresh))
 
 @app.route('/api/trends')
+@login_required
 def api_trends(): return jsonify(get_monthly_trends())
 
 @app.route('/api/subaccounts')
+@login_required
 def api_subaccounts():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_subaccounts_list(force_refresh=refresh))
 
 @app.route('/api/family-subaccounts')
+@login_required
 def api_family_subaccounts():
     return jsonify(get_family_subaccounts())
 
 @app.route('/api/move-money', methods=['POST'])
+@login_required
 def api_move_money():
     data = request.json
     return jsonify(move_money(data.get('fromId'), data.get('toId'), data.get('amount'), data.get('note')))
 
 @app.route('/api/delete-pocket', methods=['POST'])
+@login_required
 def api_delete_pocket():
     data = request.json
     return jsonify(delete_subaccount_action(data.get('id')))
 
 
 @app.route('/api/create-pocket', methods=['POST'])
+@login_required
 def api_create_pocket():
     data = request.json
     result = create_pocket(
@@ -2706,12 +3671,14 @@ def api_create_pocket():
     return jsonify(result)
 
 @app.route('/api/delete-bill', methods=['POST'])
+@login_required
 def api_delete_bill():
     data = request.json
     return jsonify(delete_bill_action(data.get('id')))
 
 
 @app.route('/api/create-bill', methods=['POST'])
+@login_required
 def api_create_bill():
     data = request.json
     return jsonify(create_bill_action(
@@ -2726,15 +3693,18 @@ def api_create_bill():
     ))
 
 @app.route('/api/user')
+@login_required
 def api_user():
     return jsonify(get_user_profile_info())
 
 @app.route('/api/intercom')
+@login_required
 def api_intercom():
     return jsonify(get_intercom_data())
 
 # --- LUNCHFLOW API ENDPOINTS ---
 @app.route('/api/lunchflow/get-config')
+@login_required
 def api_get_lunchflow_config():
     """Get LunchFlow configuration status"""
     api_key = get_lunchflow_api_key()
@@ -2744,6 +3714,7 @@ def api_get_lunchflow_config():
     })
 
 @app.route('/api/lunchflow/save-key', methods=['POST'])
+@login_required
 def api_save_lunchflow_key():
     """Save LunchFlow API key (called from Credit Cards section)"""
     data = request.get_json()
@@ -2785,6 +3756,7 @@ def api_save_lunchflow_key():
     return jsonify({"success": True})
 
 @app.route('/api/lunchflow/accounts')
+@login_required
 def api_lunchflow_accounts():
     """List all accounts from LunchFlow"""
     api_key = get_lunchflow_api_key()
@@ -2815,6 +3787,7 @@ def api_lunchflow_accounts():
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 @app.route('/api/lunchflow/set-credit-card', methods=['POST'])
+@login_required
 def api_set_credit_card():
     """Store the selected credit card account ID (without creating pocket yet)"""
     data = request.json
@@ -2842,6 +3815,7 @@ def api_set_credit_card():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/get-balance/<account_id>')
+@login_required
 def api_get_balance(account_id):
     """Get the balance for a specific LunchFlow account"""
     api_key = get_lunchflow_api_key()
@@ -2868,6 +3842,7 @@ def api_get_balance(account_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/create-pocket-with-balance', methods=['POST'])
+@login_required
 def api_create_pocket_with_balance():
     """Create the credit card pocket and optionally sync balance"""
     data = request.json
@@ -2934,6 +3909,7 @@ def api_create_pocket_with_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/credit-card-status')
+@login_required
 def api_credit_card_status():
     """Get the current credit card account configuration (unified for both providers)"""
     api_key = get_lunchflow_api_key()
@@ -3010,6 +3986,7 @@ def api_credit_card_status():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/sync-balance', methods=['POST'])
+@login_required
 def api_sync_balance():
     """Sync the pocket balance to match the credit card balance"""
     data = request.json
@@ -3108,6 +4085,7 @@ def api_sync_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/change-account', methods=['POST'])
+@login_required
 def api_change_account():
     """Delete the credit card pocket, return money to safe-to-spend, and clear config"""
     try:
@@ -3179,6 +4157,7 @@ def api_change_account():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/lunchflow/stop-tracking', methods=['POST'])
+@login_required
 def api_stop_tracking():
     """Delete the credit card pocket, return money to safe-to-spend, and delete all config"""
     try:
@@ -3810,6 +4789,7 @@ def check_simplefin_transactions(conn, c, account_id, pocket_id, access_url, is_
         traceback.print_exc()
 
 @app.route('/api/lunchflow/last-check-time')
+@login_required
 def api_last_check_time():
     """Get the last time credit card transactions were checked"""
     try:
@@ -3848,6 +4828,7 @@ def ensure_background_thread():
     start_background_thread_once()
 
 @app.route('/api/lunchflow/transactions')
+@login_required
 def api_get_credit_card_transactions():
     """Get credit card transactions that have been synced (optionally filtered by accountId)"""
     try:
@@ -4007,6 +4988,7 @@ def simplefin_get_accounts(access_url, account_id=None):
         return {"error": f"Failed to fetch accounts: {str(e)}"}
 
 @app.route('/api/simplefin/get-access-url')
+@login_required
 def api_simplefin_get_access_url():
     """Get the stored SimpleFin access URL if it exists"""
     try:
@@ -4031,6 +5013,7 @@ def api_simplefin_get_access_url():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/claim-token', methods=['POST'])
+@login_required
 def api_simplefin_claim_token():
     """Claim a SimpleFin token and store the access URL immediately"""
     data = request.json
@@ -4061,6 +5044,7 @@ def api_simplefin_claim_token():
     return jsonify({"success": True, "accessUrl": access_url})
 
 @app.route('/api/simplefin/accounts', methods=['POST'])
+@login_required
 def api_simplefin_accounts():
     """List all accounts from SimpleFin using the access URL"""
     data = request.json
@@ -4077,6 +5061,7 @@ def api_simplefin_accounts():
     return jsonify(result)
 
 @app.route('/api/simplefin/set-credit-card', methods=['POST'])
+@login_required
 def api_simplefin_set_credit_card():
     """Store the selected SimpleFin credit card account"""
     data = request.json
@@ -4105,6 +5090,7 @@ def api_simplefin_set_credit_card():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/get-balance', methods=['POST'])
+@login_required
 def api_simplefin_get_balance():
     """Get the balance for a specific SimpleFin account"""
     data = request.json
@@ -4130,6 +5116,7 @@ def api_simplefin_get_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/create-pocket-with-balance', methods=['POST'])
+@login_required
 def api_simplefin_create_pocket_with_balance():
     """Create the credit card pocket for SimpleFin and optionally sync balance"""
     data = request.json
@@ -4235,6 +5222,7 @@ def api_simplefin_create_pocket_with_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-balance', methods=['POST'])
+@login_required
 def api_simplefin_sync_balance():
     """Sync the pocket balance to match the SimpleFin credit card balance"""
     data = request.json
@@ -4336,6 +5324,7 @@ def api_simplefin_sync_balance():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/get-batch-mode', methods=['POST'])
+@login_required
 def api_simplefin_get_batch_mode():
     """Get the batch mode setting for a SimpleFin account"""
     try:
@@ -4362,6 +5351,7 @@ def api_simplefin_get_batch_mode():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/set-batch-mode', methods=['POST'])
+@login_required
 def api_simplefin_set_batch_mode():
     """Set the batch mode setting for a SimpleFin account"""
     try:
@@ -4399,6 +5389,7 @@ def api_simplefin_set_batch_mode():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/change-account', methods=['POST'])
+@login_required
 def api_simplefin_change_account():
     """Delete the SimpleFin credit card pocket and clear config"""
     try:
@@ -4470,6 +5461,7 @@ def api_simplefin_change_account():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/stop-tracking', methods=['POST'])
+@login_required
 def api_simplefin_stop_tracking():
     """Delete the SimpleFin credit card pocket and all config"""
     try:
@@ -4539,6 +5531,7 @@ def api_simplefin_stop_tracking():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/disconnect', methods=['POST'])
+@login_required
 def api_simplefin_disconnect():
     """Completely disconnect SimpleFin - removes access URL and all account tracking"""
     try:
@@ -4604,6 +5597,7 @@ def api_simplefin_disconnect():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-schedule', methods=['GET'])
+@login_required
 def api_get_simplefin_sync_schedule():
     """Get the current SimpleFin sync schedule setting"""
     import json
@@ -4633,6 +5627,7 @@ def api_get_simplefin_sync_schedule():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-schedule', methods=['POST'])
+@login_required
 def api_set_simplefin_sync_schedule():
     """Update the SimpleFin sync schedule setting"""
     import json
@@ -4670,6 +5665,7 @@ def api_set_simplefin_sync_schedule():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/timezone', methods=['GET'])
+@login_required
 def api_get_simplefin_timezone():
     """Get the configured timezone"""
     try:
@@ -4685,6 +5681,7 @@ def api_get_simplefin_timezone():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/timezone', methods=['POST'])
+@login_required
 def api_set_simplefin_timezone():
     """Set the timezone for date calculations"""
     try:
@@ -4721,6 +5718,7 @@ def api_set_simplefin_timezone():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/simplefin/sync-now', methods=['POST'])
+@login_required
 def api_simplefin_sync_now():
     """Manually trigger SimpleFin sync for all accounts"""
     try:
@@ -4805,11 +5803,13 @@ def api_simplefin_sync_now():
 # --- SPLITWISE API ENDPOINTS ---
 
 @app.route('/api/splitwise/get-config')
+@login_required
 def api_splitwise_get_config():
     """Check if Splitwise is configured"""
     return jsonify({"configured": bool(get_splitwise_api_key())})
 
 @app.route('/api/splitwise/save-key', methods=['POST'])
+@login_required
 def api_splitwise_save_key():
     """Validate and save Splitwise API key"""
     api_key = request.json.get('apiKey')
@@ -4844,6 +5844,7 @@ def api_splitwise_save_key():
         return jsonify({"error": "Invalid API key"}), 400
 
 @app.route('/api/splitwise/friends')
+@login_required
 def api_splitwise_get_friends():
     """Get list of Splitwise friends for filtering"""
     api_key = get_splitwise_api_key()
@@ -4866,6 +5867,7 @@ def api_splitwise_get_friends():
     return jsonify({"error": "Failed to fetch friends"}), 500
 
 @app.route('/api/splitwise/set-tracked-friends', methods=['POST'])
+@login_required
 def api_splitwise_set_tracked_friends():
     """Set which friends to track (or NULL for all)"""
     friend_ids = request.json.get('friendIds')
@@ -4883,6 +5885,7 @@ def api_splitwise_set_tracked_friends():
     return jsonify({"success": True})
 
 @app.route('/api/splitwise/get-creditors')
+@login_required
 def api_splitwise_get_creditors():
     """Get list of friends user owes money to (from /get_friends endpoint)"""
     try:
@@ -4941,6 +5944,7 @@ def api_splitwise_get_creditors():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/create-pockets', methods=['POST'])
+@login_required
 def api_splitwise_create_pockets():
     """Create per-friend Splitwise pockets for selected friends"""
     try:
@@ -5056,6 +6060,7 @@ def api_splitwise_create_pockets():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/status')
+@login_required
 def api_splitwise_status():
     """Get Splitwise integration status"""
     conn = sqlite3.connect(DB_FILE)
@@ -5088,6 +6093,7 @@ def api_splitwise_status():
     })
 
 @app.route('/api/splitwise/friend-balances')
+@login_required
 def api_splitwise_friend_balances():
     """Get tracked friend balances from Splitwise API"""
     try:
@@ -5154,6 +6160,7 @@ def api_splitwise_friend_balances():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/sync-now', methods=['POST'])
+@login_required
 def api_splitwise_sync_now():
     """Sync Splitwise friend balances to pocket balances"""
     try:
@@ -5264,6 +6271,7 @@ def api_splitwise_sync_now():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/splitwise/disconnect', methods=['POST'])
+@login_required
 def api_splitwise_disconnect():
     """Disconnect Splitwise integration and delete all friend pockets"""
     try:

@@ -90,6 +90,17 @@ SimpleCrew is a comprehensive financial dashboard that connects to [Crew Banking
 | **Balance Tracking** | Monitor credit card balances |
 | **Pocket Linking** | Dedicated pockets for credit card payments |
 
+### 🔐 Security & Authentication
+| Feature | Description |
+|---------|-------------|
+| **Passkey Authentication** | Passwordless login with Face ID, Touch ID, or security keys (WebAuthn/FIDO2) |
+| **Password Authentication** | Secure username/password login with session management |
+| **Password Security** | PBKDF2-SHA256 hashing with 8-character minimum |
+| **Multi-Device Support** | Register multiple passkeys (phone, laptop, security key) |
+| **Single-Tenant Model** | One user per deployment for privacy |
+| **Session Management** | Secure cookie-based sessions with HttpOnly flag |
+| **Passkey Management** | Add, rename, and remove passkeys from account settings |
+
 ### 🎨 User Experience
 | Feature | Description |
 |---------|-------------|
@@ -153,12 +164,26 @@ open http://localhost:8080
 ### First-Time Setup
 
 1. Navigate to `http://localhost:8080`
-2. Complete the onboarding flow:
+2. **Create your account** (first-time only):
+   - Enter a username and password
+   - Email is optional
+   - Password must be at least 8 characters
+3. **Complete the onboarding flow**:
    - Select **Crew Banking** as your provider
    - Enter your Crew bearer token
-3. Start managing your finances!
+4. **(Optional) Configure passkeys** for passwordless login:
+   - Navigate to Account Settings → Passkey Configuration
+   - Set your RP_ID (domain) and Origin URL
+   - For localhost: Use `localhost` and `http://localhost:8080`
+   - For production: Use your domain and HTTPS URL
+   - Click "Add Passkey" in the Passkeys section to register your device
+5. Start managing your finances!
 
 > **Getting Your Bearer Token**: Log into [Crew](https://app.trycrew.com), open browser DevTools (F12), go to Network tab, and find the `authorization` header in any API request.
+
+> **Security Note**: Only one user account can be created per installation. Registration is automatically disabled after the first user signs up.
+
+> **Passkey Support**: Passkeys work on Chrome 67+, Safari 14+, Firefox 60+, and Edge 18+. HTTPS required in production (localhost works for development).
 
 ---
 
@@ -232,6 +257,8 @@ SimpleCrew/
 └── templates/
     ├── base.html                   # Base template
     ├── index.html                  # Main dashboard
+    ├── login.html                  # Login page
+    ├── register.html               # First-time registration
     ├── onboarding.html             # Setup wizard
     └── partials/
         ├── header.html
@@ -242,12 +269,34 @@ SimpleCrew/
             ├── goals.html
             ├── family.html
             ├── cards.html
-            └── credit.html
+            ├── credit.html
+            └── account.html         # Account settings & security
 ```
 
 ---
 
 ## API Reference
+
+### Authentication
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/login` | GET | Login page (or registration if no users exist) |
+| `/api/auth/login` | POST | Authenticate user with password and create session |
+| `/api/auth/logout` | POST | End user session |
+| `/api/auth/register` | POST | Create user account (first-time only) |
+| `/api/auth/change-password` | POST | Update user password |
+| `/api/auth/webauthn/register/options` | POST | Generate passkey registration options |
+| `/api/auth/webauthn/register/verify` | POST | Verify and save new passkey credential |
+| `/api/auth/webauthn/authenticate/options` | POST | Generate passkey authentication options |
+| `/api/auth/webauthn/authenticate/verify` | POST | Verify passkey and create session |
+| `/api/auth/passkeys` | GET | List user's registered passkeys |
+| `/api/auth/passkeys/<id>` | DELETE | Remove a passkey credential |
+| `/api/auth/passkeys/<id>` | PATCH | Update passkey nickname |
+| `/api/account/webauthn/config` | GET | Get WebAuthn configuration (RP_ID and ORIGIN) |
+| `/api/account/webauthn/update-config` | POST | Update WebAuthn configuration |
+| `/api/account/webauthn/test` | POST | Test WebAuthn configuration validity |
+
+> **Note**: All API endpoints below require authentication. Unauthenticated requests will be redirected to `/login`.
 
 ### Financial Data
 | Endpoint | Method | Description |
@@ -290,19 +339,29 @@ SimpleCrew/
 
 ### Database-Stored Credentials
 
-All credentials are securely stored in the SQLite database:
+All credentials and configuration are securely stored in the SQLite database:
 
 | Credential | Configuration |
 |------------|---------------|
-| **Crew Bearer Token** | Set during onboarding |
-| **SimpleFin API Key** | Set in Credit Cards section |
+| **User Account** | Created during first-time setup |
+| **SECRET_KEY** | Auto-generated on first run for session encryption |
+| **Crew Bearer Token** | Set during onboarding or in Account Settings |
+| **SimpleFin Access URL** | Set in Credit Cards section |
+| **LunchFlow API Key** | Set in Credit Cards section |
+| **Splitwise API Key** | Set in Account Settings |
 
 ### Environment Variables (Optional)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_FILE` | Database file path | `savings_data.db` |
-| `BEARER_TOKEN` | Legacy token support | - |
+| `DB_FILE` | Database file path | `data/savings_data.db` |
+| `BEARER_TOKEN` | Legacy token support (auto-migrated to DB) | - |
+| `RP_ID` | WebAuthn Relying Party ID (domain for passkeys) - **configurable via UI** | `localhost` |
+| `ORIGIN` | WebAuthn origin URL (must match your deployment URL) - **configurable via UI** | `http://localhost:8080` |
+
+> **Note**: No environment variables are required. SECRET_KEY is automatically generated and stored in the database on first run.
+
+> **Passkey Configuration**: WebAuthn settings (RP_ID and ORIGIN) can be configured through the Account Settings page under "Passkey Configuration". The UI provides validation and testing to ensure correct configuration. Environment variables are used as fallback only.
 
 ---
 
@@ -337,7 +396,9 @@ docker-compose up -d --build
 
 ### Production Recommendations
 
-- Use HTTPS with SSL/TLS termination
+- **HTTPS Required**: Use HTTPS with SSL/TLS termination (mandatory for passkeys)
+- **Passkey Configuration**: Configure RP_ID and ORIGIN through Account Settings → Passkey Configuration
+  - Alternative: Set `RP_ID` and `ORIGIN` environment variables (UI configuration takes precedence)
 - Set up regular database backups
 - Configure a reverse proxy (nginx/traefik)
 - Monitor API rate limits
@@ -359,17 +420,39 @@ docker-compose up -d --build
 
 | Aspect | Implementation |
 |--------|----------------|
-| **Credential Storage** | Encrypted in SQLite database |
+| **Passkey Authentication** | WebAuthn/FIDO2 protocol with public key cryptography |
+| **User Authentication** | Flask-Login with session-based authentication |
+| **Password Security** | PBKDF2-SHA256 hashing with salt |
+| **Challenge-Response** | Cryptographically secure 32-byte challenges with 15-minute expiration |
+| **Sign Count Verification** | Detects cloned authenticators via incrementing counter |
+| **Session Management** | Auto-generated SECRET_KEY, HttpOnly cookies |
+| **Route Protection** | All API endpoints require authentication |
+| **Credential Storage** | Securely stored in SQLite database |
 | **API Tokens** | Validated before storage |
 | **Data Directory** | Excluded from version control |
-| **Session Security** | Secure cookie handling |
+| **SQL Injection** | Parameterized queries throughout |
 
 ### Best Practices
 
+- **Recommended**: Set up passkeys for secure, passwordless login
+- Register multiple passkeys (phone, laptop, security key) for redundancy
+- Use a strong password (8+ characters) if using password authentication
+- Change your password regularly via Account Settings
+- Always use HTTPS in production deployments (required for passkeys)
 - Regularly rotate API credentials
 - Backup your `data/` directory
 - Keep Docker images updated
 - Review access logs periodically
+
+### Production Security Recommendations
+
+For production deployments, consider adding:
+- **Passkey Authentication**: Enable passwordless login for better security and UX
+- **Rate Limiting**: Prevent brute-force attacks on login endpoint
+- **Session Timeout**: Configure automatic session expiration
+- **CSRF Protection**: Implement CSRF tokens for state-changing operations
+- **HTTPS Only**: Use SSL/TLS certificates and set `SESSION_COOKIE_SECURE=True`
+- **Multiple Passkeys**: Encourage users to register backup passkeys on different devices
 
 ---
 
@@ -379,7 +462,14 @@ docker-compose up -d --build
 
 | Issue | Solution |
 |-------|----------|
-| **Authentication Errors** | Re-enter token via onboarding (delete database) |
+| **Can't Login** | Verify username and password. Check `data/savings_data.db` exists |
+| **Passkey Not Working** | Ensure browser supports WebAuthn (Chrome 67+, Safari 14+, Firefox 60+, Edge 18+) |
+| **Passkey Registration Failed** | Check device has biometric authentication enabled (Face ID, Touch ID, Windows Hello) |
+| **Passkey Production Issues** | HTTPS required for passkeys in production. Localhost works for development |
+| **Forgot Password** | Delete database to reset (will lose all data). Better: use passkeys or strong password |
+| **Registration Disabled** | Registration only allowed for first user. Use existing account or reset database |
+| **Session Expired** | Log in again. Sessions persist until manual logout |
+| **API Token Errors** | Update tokens in Account Settings → Test connection |
 | **Database Issues** | Check `data/` directory permissions |
 | **API Connection** | Verify network access to `api.trycrew.com` |
 | **Mobile Display** | Clear browser cache, check viewport |
