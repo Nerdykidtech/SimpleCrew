@@ -22,18 +22,67 @@ function openMoveModal(preFillToId = null) {
 
     // Clear previous values
     document.getElementById('move-amount').value = '';
-    document.getElementById('move-note').value = '';
+    document.getElementById('move-memo').value = '';
 
     // ALWAYS REFRESH
     fetch('/api/subaccounts?refresh=true').then(res=>res.json()).then(data => {
-        if(data.error) return;
+        if(data.error) {
+            console.error('Error loading accounts:', data.error);
+            const fromSelect = document.getElementById('move-from');
+            const toSelect = document.getElementById('move-to');
+            fromSelect.innerHTML = '<option style="color:red;">Error: ' + data.error + '</option>';
+            toSelect.innerHTML = '<option style="color:red;">Error: ' + data.error + '</option>';
+            return;
+        }
+
+        // Check if subaccounts exist and is an array
+        if (!data.subaccounts || !Array.isArray(data.subaccounts)) {
+            console.error('Invalid response format:', data);
+            const fromSelect = document.getElementById('move-from');
+            const toSelect = document.getElementById('move-to');
+            fromSelect.innerHTML = '<option style="color:red;">Invalid response from server</option>';
+            toSelect.innerHTML = '<option style="color:red;">Invalid response from server</option>';
+            return;
+        }
 
         // Store account data globally for validation logic
         moveMoneyAccounts = data.subaccounts;
 
-        const opts = data.subaccounts.map(acc => `<option value="${acc.id}">${acc.name} (${fmt(acc.balance)})</option>`).join('');
+        // Build grouped options
+        const mainAccounts = data.subaccounts.filter(a => a.type === 'account' || a.type === 'subaccount');
+        const externalAccounts = data.subaccounts.filter(a => a.type === 'external');
+        const childAccounts = data.subaccounts.filter(a => a.type === 'child_account' || a.type === 'child_subaccount');
+
+        let opts = '';
+        if (mainAccounts.length) {
+            opts += '<optgroup label="My Accounts">';
+            opts += mainAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${fmt(acc.balance)})</option>`).join('');
+            opts += '</optgroup>';
+        }
+        if (externalAccounts.length) {
+            opts += '<optgroup label="External Accounts">';
+            opts += externalAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${fmt(acc.balance)})</option>`).join('');
+            opts += '</optgroup>';
+        }
+        if (childAccounts.length) {
+            // Group by child name
+            const childNames = [...new Set(childAccounts.map(a => a.childName))];
+            childNames.forEach(name => {
+                opts += `<optgroup label="${name}'s Accounts">`;
+                opts += childAccounts.filter(a => a.childName === name).map(acc => `<option value="${acc.id}">${acc.name} (${fmt(acc.balance)})</option>`).join('');
+                opts += '</optgroup>';
+            });
+        }
+
         const fromSelect = document.getElementById('move-from');
         const toSelect = document.getElementById('move-to');
+
+        // Check if we have any accounts to display
+        if (!opts) {
+            fromSelect.innerHTML = '<option>No accounts available</option>';
+            toSelect.innerHTML = '<option>No accounts available</option>';
+            return;
+        }
 
         fromSelect.innerHTML = opts;
         toSelect.innerHTML = opts;
@@ -46,6 +95,12 @@ function openMoveModal(preFillToId = null) {
                  fromSelect.selectedIndex = (fromSelect.selectedIndex + 1) % fromSelect.options.length;
             }
         }
+    }).catch(error => {
+        console.error('Network error loading accounts:', error);
+        const fromSelect = document.getElementById('move-from');
+        const toSelect = document.getElementById('move-to');
+        fromSelect.innerHTML = '<option style="color:red;">Network error - check console</option>';
+        toSelect.innerHTML = '<option style="color:red;">Network error - check console</option>';
     });
 }
 
@@ -63,7 +118,7 @@ function executeTransfer() {
     const fromId = document.getElementById('move-from').value;
     const toId = document.getElementById('move-to').value;
     const amount = document.getElementById('move-amount').value;
-    const note = document.getElementById('move-note').value;
+    const memo = document.getElementById('move-memo').value;
     const messageEl = document.getElementById('move-message');
 
     // Validation
@@ -95,7 +150,7 @@ function executeTransfer() {
     fetch('/api/move-money', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromId, toId, amount, note })
+        body: JSON.stringify({ fromId, toId, amount, memo })
     })
     .then(res => res.json())
     .then(data => {

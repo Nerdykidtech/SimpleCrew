@@ -16,8 +16,10 @@
 function switchTab(tab) {
     // Clear Active Desktop
     document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
-    // Clear Active Mobile
+    // Clear Active Mobile (Bottom nav - deprecated)
     document.querySelectorAll('.mobile-nav-link').forEach(el => el.classList.remove('active'));
+    // Clear Active Drawer
+    document.querySelectorAll('.drawer-nav-item').forEach(el => el.classList.remove('active'));
     // Clear View
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
 
@@ -25,9 +27,13 @@ function switchTab(tab) {
     const desktopNav = document.getElementById(`nav-${tab}`);
     if(desktopNav) desktopNav.classList.add('active');
 
-    // Set Mobile Active
+    // Set Mobile Active (Bottom nav - deprecated)
     const mobileNav = document.getElementById(`mb-nav-${tab}`);
     if(mobileNav) mobileNav.classList.add('active');
+
+    // Set Drawer Active
+    const drawerNav = document.getElementById(`drawer-nav-${tab}`);
+    if(drawerNav) drawerNav.classList.add('active');
 
     const searchContainer = document.getElementById('search-container');
     const filterBar = document.getElementById('filter-bar');
@@ -143,6 +149,48 @@ function toggleUserMenu(e) {
     }
 }
 
+function toggleMobileMore() {
+    const menu = document.getElementById('mobile-more-menu');
+    const isShowing = menu.classList.contains('show');
+
+    if (isShowing) {
+        menu.classList.remove('show');
+    } else {
+        menu.classList.add('show');
+    }
+}
+
+function toggleMobileMenu() {
+    const drawer = document.getElementById('mobile-drawer');
+    const isShowing = drawer.classList.contains('show');
+
+    if (isShowing) {
+        // CLOSE MENU
+        drawer.classList.remove('show');
+        document.body.classList.remove('menu-open'); // <--- ALLOW SCROLLING AGAIN
+    } else {
+        // OPEN MENU
+        // Update drawer user info with current values
+        const userName = document.getElementById('user-name').innerText;
+        const stsBalance = document.getElementById('sts-balance').innerText;
+        const userAvatarEl = document.getElementById('user-avatar');
+        const drawerAvatarEl = document.getElementById('drawer-avatar');
+
+        document.getElementById('drawer-user-name').innerText = userName;
+        document.getElementById('drawer-user-balance').innerText = "Safe-To-Spend: " + stsBalance;
+
+        // Copy the entire avatar HTML
+        drawerAvatarEl.innerHTML = userAvatarEl.innerHTML;
+        drawerAvatarEl.style.background = userAvatarEl.style.background || 'rgba(255, 255, 255, 0.2)';
+
+        if (!userAvatarEl.querySelector('img')) {
+            drawerAvatarEl.innerText = userAvatarEl.innerText;
+        }
+
+        drawer.classList.add('show');
+        document.body.classList.add('menu-open'); // <--- STOP SCROLLING
+    }
+}
 async function handleLogout(e) {
     e.stopPropagation();
 

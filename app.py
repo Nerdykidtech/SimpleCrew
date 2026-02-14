@@ -1167,15 +1167,104 @@ def get_subaccounts_list(force_refresh=False):
     try:
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
-        query_string = """ query CurrentUser { currentUser { accounts { subaccounts { id name overallBalance } } } } """
-        response = requests.post(URL, headers=headers, json={"operationName": "CurrentUser", "query": query_string})
+        query_string = """
+        query TransferScreen {
+          currentUser {
+            id
+            family {
+              id
+              signerSpendAccount {
+                ...AccountTransferFields
+                subaccounts {
+                  ...SubaccountTransferFields
+                }
+              }
+              externalAccounts {
+                ...AccountTransferFields
+              }
+              children {
+                id
+                dob
+                ...AvatarFields
+                spendAccount {
+                  ...AccountTransferFields
+                  subaccounts {
+                    ...SubaccountTransferFields
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        fragment AccountTransferFields on Account {
+          id
+          displayName
+          belongsToCurrentUser
+          owner {
+            displayName
+          }
+          overallBalance
+          isExternalAccount
+        }
+
+        fragment SubaccountTransferFields on Subaccount {
+          id
+          displayName
+          belongsToCurrentUser
+          owner {
+            displayName
+          }
+          clearedBalance
+          isExternalAccount
+          piggyBanked
+        }
+
+        fragment AvatarFields on User {
+          id
+          cardColor
+          imageUrl
+          displayedFirstName
+        }
+        """
+        response = requests.post(URL, headers=headers, json={"operationName": "TransferScreen", "query": query_string})
         data = response.json()
-        subs = []
-        for account in data.get("data", {}).get("currentUser", {}).get("accounts", []):
-            for sub in account.get("subaccounts", []):
-                balance = sub.get("overallBalance", 0) / 100.0
-                subs.append({"id": sub.get("id"), "name": sub.get("name"), "balance": balance})
-        return {"subaccounts": subs}
+        if 'errors' in data: return {"error": data['errors'][0]['message']}
+
+        family = data.get("data", {}).get("currentUser", {}).get("family", {})
+        accounts = []
+
+        # Main spend account subaccounts (only non-piggyBanked = Free to Spend checking)
+        spend = family.get("signerSpendAccount") or {}
+        if spend:
+            # Skip the main account, only add subaccounts
+            for sub in spend.get("subaccounts", []):
+                # Only include non-piggyBanked subaccounts (Free to Spend checking)
+                if not sub.get("piggyBanked", False):
+                    sub_balance = (sub.get("clearedBalance") or 0) / 100.0
+                    sub_owner = sub.get("owner", {}).get("displayName", "")
+                    accounts.append({"id": sub.get("id"), "name": sub.get("displayName"), "balance": sub_balance, "owner": sub_owner, "isExternal": sub.get("isExternalAccount", False), "type": "subaccount", "piggyBanked": False})
+
+        # External accounts
+        for ext in family.get("externalAccounts", []):
+            balance = (ext.get("overallBalance") or 0) / 100.0
+            owner = ext.get("owner", {}).get("displayName", "")
+            accounts.append({"id": ext.get("id"), "name": ext.get("displayName"), "balance": balance, "owner": owner, "isExternal": True, "type": "external"})
+
+        # Children's accounts subaccounts (only non-piggyBanked = Free to Spend checking)
+        for child in family.get("children", []):
+            child_name = child.get("displayedFirstName", "Child")
+            child_spend = child.get("spendAccount") or {}
+            if child_spend:
+                # Skip the child's main account, only add subaccounts
+                for sub in child_spend.get("subaccounts", []):
+                    # Only include non-piggyBanked subaccounts (Free to Spend checking)
+                    if not sub.get("piggyBanked", False):
+                        sub_balance = (sub.get("clearedBalance") or 0) / 100.0
+                        sub_owner = sub.get("owner", {}).get("displayName", "")
+                        accounts.append({"id": sub.get("id"), "name": sub.get("displayName"), "balance": sub_balance, "owner": sub_owner, "isExternal": False, "type": "child_subaccount", "childName": child_name, "piggyBanked": False})
+
+        return {"subaccounts": accounts}
     except Exception as e:
         return {"error": str(e)}
 
@@ -1291,13 +1380,13 @@ def get_configured_timezone():
     except:
         return None
 
-def move_money(from_id, to_id, amount, note=""):
+def move_money(from_id, to_id, amount, memo=""):
     try:
         headers = get_crew_headers()
         if not headers: return {"error": "Credentials not found"}
         query_string = """ mutation InitiateTransferScottie($input: InitiateTransferInput!) { initiateTransfer(input: $input) { result { id __typename } __typename } } """
         amount_cents = int(round(float(amount) * 100))
-        variables = {"input": {"amount": amount_cents, "accountFromId": from_id, "accountToId": to_id, "note": note or "Transfer"}}
+        variables = {"input": {"amount": amount_cents, "accountFromId": from_id, "accountToId": to_id, "note": memo or "Transfer"}}
         response = requests.post(URL, headers=headers, json={"operationName": "InitiateTransferScottie", "variables": variables, "query": query_string})
         data = response.json()
         if 'errors' in data: return {"error": data['errors'][0]['message']}
@@ -3631,7 +3720,7 @@ def api_family_subaccounts():
 @login_required
 def api_move_money():
     data = request.json
-    return jsonify(move_money(data.get('fromId'), data.get('toId'), data.get('amount'), data.get('note')))
+    return jsonify(move_money(data.get('fromId'), data.get('toId'), data.get('amount'), data.get('memo')))
 
 @app.route('/api/delete-pocket', methods=['POST'])
 @login_required
