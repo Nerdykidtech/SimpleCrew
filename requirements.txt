@@ -2,3 +2,5 @@ flask
 flask-login==0.6.3
 requests
 webauthn>=2.0.0
+pywebpush==2.0.1
+py-vapid==1.9.1

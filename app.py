@@ -538,6 +538,31 @@ def init_db():
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # Web Push (VAPID) configuration
+    c.execute('''CREATE TABLE IF NOT EXISTS fcm_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vapid_public_key TEXT NOT NULL,
+        vapid_private_key TEXT NOT NULL,
+        firebase_project_id TEXT,
+        service_account_json TEXT,
+        is_valid INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # FCM device tokens (one per browser/device)
+    c.execute('''CREATE TABLE IF NOT EXISTS fcm_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        device_name TEXT,
+        user_agent TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )''')
+
     conn.commit()
 
     # Auto-migrate env vars to database on first run
@@ -743,6 +768,107 @@ def get_webauthn_origin():
 
     # Fallback to env var or default
     return os.environ.get('ORIGIN', 'http://localhost:8080')
+
+def get_fcm_config():
+    """Get VAPID configuration from database"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""SELECT vapid_public_key, vapid_private_key, is_valid FROM fcm_config LIMIT 1""")
+    row = c.fetchone()
+    conn.close()
+
+    if row and row[2]:  # is_valid = 1
+        return {
+            'vapid_public_key': row[0],
+            'vapid_private_key': row[1]
+        }
+    return None
+
+def send_sync_complete_notification(user_id, transaction_count, account_names):
+    """Send Web Push notification for sync completion"""
+    fcm_config = get_fcm_config()
+    if not fcm_config:
+        return  # VAPID not configured, skip silently
+
+    # Get active tokens for user
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT token FROM fcm_tokens WHERE user_id = ? AND is_active = 1", (user_id,))
+    tokens = [row[0] for row in c.fetchall()]
+    conn.close()
+
+    if not tokens:
+        print(f"📱 No FCM tokens registered for user {user_id}")
+        return
+
+    # Build notification
+    if len(account_names) == 1:
+        title = f"New transactions on {account_names[0]}"
+        body = f"{transaction_count} new transaction(s) synced"
+    else:
+        title = "Credit card sync complete"
+        body = f"{transaction_count} new transaction(s) across {len(account_names)} accounts"
+
+    # Send via Web Push
+    try:
+        from pywebpush import webpush, WebPushException
+
+        # Build notification payload
+        payload = json.dumps({
+            "notification": {
+                "title": title,
+                "body": body
+            }
+        })
+
+        success_count = 0
+        failed_tokens = []
+
+        # Send to each subscription
+        for token_json in tokens:
+            try:
+                # Parse subscription object
+                subscription_info = json.loads(token_json)
+
+                # Send push notification (pywebpush handles VAPID JWT automatically)
+                # NOTE: Apple rejects "localhost" in VAPID subject - must use real domain
+                webpush(
+                    subscription_info=subscription_info,
+                    data=payload,
+                    vapid_private_key=fcm_config['vapid_private_key'],
+                    vapid_claims={"sub": "mailto:notifications@example.com"},
+                    ttl=86400
+                )
+                success_count += 1
+
+            except WebPushException as e:
+                print(f"⚠️ WebPushException: {e}")
+                if e.response:
+                    print(f"   Status: {e.response.status_code}, Body: {e.response.text if hasattr(e.response, 'text') else 'N/A'}")
+                print(f"   Endpoint: {subscription_info.get('endpoint', 'N/A')[:80]}...")
+                # Mark as inactive if subscription expired (410 Gone or 404 Not Found)
+                if e.response and e.response.status_code in [404, 410]:
+                    failed_tokens.append(token_json)
+            except json.JSONDecodeError as e:
+                print(f"⚠️ Invalid token JSON: {e}")
+                failed_tokens.append(token_json)
+            except Exception as e:
+                print(f"⚠️ Failed to send to token: {e}")
+
+        print(f"✅ Sent notification to {success_count}/{len(tokens)} devices: {title}")
+
+        # Mark invalid tokens as inactive
+        if failed_tokens:
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            for token in failed_tokens:
+                c.execute("UPDATE fcm_tokens SET is_active = 0 WHERE token = ?", (token,))
+            conn.commit()
+            conn.close()
+            print(f"⚠️ Marked {len(failed_tokens)} invalid tokens as inactive")
+
+    except Exception as e:
+        print(f"❌ Failed to send push notification: {e}")
 
 # --- API HELPERS ---
 def get_crew_headers():
@@ -3340,6 +3466,99 @@ def api_account_test_webauthn():
         "message": "Configuration is valid"
     })
 
+# --- WEB PUSH TOKEN MANAGEMENT ---
+
+@app.route('/api/fcm/register-token', methods=['POST'])
+@login_required
+def api_fcm_register_token():
+    """Register Web Push subscription for push notifications"""
+    try:
+        data = request.json
+        token = data.get('token')
+        device_name = data.get('device_name', 'Unknown Device')
+        user_agent = request.headers.get('User-Agent', '')
+
+        if not token:
+            return jsonify({"error": "Token required"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Insert or update token
+        c.execute("""INSERT INTO fcm_tokens (user_id, token, device_name, user_agent, last_used_at)
+                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     ON CONFLICT(token) DO UPDATE SET
+                     last_used_at = CURRENT_TIMESTAMP, is_active = 1""",
+                  (current_user.id, token, device_name, user_agent))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True, "message": "Token registered"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- WEB PUSH CONFIGURATION (Account Settings) ---
+
+@app.route('/api/account/fcm/config', methods=['GET'])
+@login_required
+def api_get_fcm_config():
+    """Get VAPID configuration status (without exposing secrets)"""
+    try:
+        fcm_config = get_fcm_config()
+        return jsonify({
+            "success": True,
+            "configured": fcm_config is not None,
+            "vapid_public_key": fcm_config['vapid_public_key'] if fcm_config else None
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/fcm/update-config', methods=['POST'])
+@login_required
+def api_update_fcm_config():
+    """Update VAPID configuration for Web Push"""
+    try:
+        data = request.json
+        vapid_public = data.get('vapid_public_key', '').strip()
+        vapid_private = data.get('vapid_private_key', '').strip()
+
+        if not vapid_public or not vapid_private:
+            return jsonify({"error": "Both VAPID keys required"}), 400
+
+        # Basic validation - VAPID keys should be base64url strings
+        if len(vapid_public) < 20 or len(vapid_private) < 20:
+            return jsonify({"error": "Invalid VAPID key format"}), 400
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Delete old config and insert new (keeping old columns empty for backward compatibility)
+        c.execute("DELETE FROM fcm_config")
+        c.execute("""INSERT INTO fcm_config (vapid_public_key, vapid_private_key,
+                     firebase_project_id, service_account_json)
+                     VALUES (?, ?, '', '')""",
+                  (vapid_public, vapid_private))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True, "message": "VAPID configuration saved"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/fcm/test', methods=['POST'])
+@login_required
+def api_test_fcm():
+    """Test Web Push configuration by sending a test notification"""
+    try:
+        send_sync_complete_notification(
+            current_user.id,
+            1,
+            ['Test Account']
+        )
+        return jsonify({"success": True, "message": "Test notification sent"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # --- API ROUTES ---
 @app.route('/api/family')
 @login_required
@@ -4428,6 +4647,39 @@ def check_credit_card_transactions():
             c.execute("UPDATE simplefin_config SET last_sync = ?", (last_sync_iso,))
             conn.commit()
 
+        # Send notification if new transactions were found
+        # Count total new transactions (those created in the last minute)
+        from datetime import datetime, timedelta
+        one_minute_ago = (datetime.now() - timedelta(minutes=1)).isoformat()
+        c.execute("""
+            SELECT COUNT(*), GROUP_CONCAT(DISTINCT account_id)
+            FROM credit_card_transactions
+            WHERE created_at >= ?
+        """, (one_minute_ago,))
+        count_row = c.fetchone()
+
+        if count_row and count_row[0] and count_row[0] > 0:
+            transaction_count = count_row[0]
+            account_ids_str = count_row[1]
+
+            # Get account names for the notification
+            account_ids = account_ids_str.split(',') if account_ids_str else []
+            account_names = []
+            for acc_id in account_ids:
+                c.execute("SELECT account_name FROM credit_card_config WHERE account_id = ?", (acc_id,))
+                name_row = c.fetchone()
+                if name_row and name_row[0]:
+                    account_names.append(name_row[0])
+
+            # Get user ID (single-tenant app)
+            c.execute("SELECT id FROM users LIMIT 1")
+            user_row = c.fetchone()
+            if user_row and account_names:
+                send_sync_complete_notification(
+                    user_row[0],
+                    transaction_count,
+                    account_names
+                )
 
         conn.close()
     except Exception as e:

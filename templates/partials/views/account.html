@@ -186,6 +186,164 @@
                 </div>
             </div>
 
+            <!-- Push Notifications -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🔔</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Push Notifications</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Get notified when credit card syncs complete</p>
+                        </div>
+                    </div>
+                    <div id="notification-status"></div>
+                </div>
+
+                <p style="font-size: 14px; color: var(--text-dark); margin-bottom: 16px;">
+                    Enable push notifications to receive alerts when new transactions are synced from your credit cards.
+                </p>
+
+                <button onclick="requestNotificationPermission()"
+                        style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                    Enable Notifications
+                </button>
+            </div>
+
+            <!-- VAPID Configuration -->
+            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="font-size: 36px;">🔑</div>
+                        <div>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">VAPID Keys</h3>
+                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Configure Web Push authentication keys</p>
+                        </div>
+                    </div>
+                    <div id="fcm-config-status-badge"></div>
+                </div>
+
+                <div style="background: var(--bg-elevated); border-left: 4px solid var(--simple-blue); padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+                    <p style="font-size: 13px; color: var(--text-dark); margin: 0; line-height: 1.6;">
+                        <strong>Setup Instructions:</strong><br>
+                        1. Generate VAPID keys using an online tool like <a href="https://vapidkeys.com" target="_blank" style="color: var(--simple-blue);">vapidkeys.com</a><br>
+                        2. Or use the command: <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">npx web-push generate-vapid-keys</code><br>
+                        3. Copy both the public and private keys below<br>
+                        <strong>Note:</strong> These keys authenticate your server to send push notifications. Keep the private key secure!
+                    </p>
+                </div>
+
+                <div id="fcm-config-form">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">VAPID Public Key</label>
+                        <input type="text" id="fcm-vapid-public" placeholder="Enter VAPID public key"
+                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">VAPID Private Key</label>
+                        <input type="password" id="fcm-vapid-private" placeholder="Enter VAPID private key"
+                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
+                    </div>
+
+                    <div id="fcm-config-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
+
+                    <div style="display: flex; gap: 12px;">
+                        <button onclick="saveFcmConfig()"
+                                style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                            Save Configuration
+                        </button>
+                        <button onclick="testFcmConfig()"
+                                style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                            Send Test
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            // Load FCM config status on page load
+            async function loadFcmConfigStatus() {
+                try {
+                    const response = await fetch('/api/account/fcm/config');
+                    const data = await response.json();
+
+                    const badgeEl = document.getElementById('fcm-config-status-badge');
+
+                    if (data.configured) {
+                        badgeEl.innerHTML = '<span style="background: #d4edda; color: #155724; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;">✓ Configured</span>';
+                    } else {
+                        badgeEl.innerHTML = '<span style="background: #e9ecef; color: #6c757d; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;">Not Configured</span>';
+                    }
+                } catch (error) {
+                    console.error('Failed to load FCM config status:', error);
+                }
+            }
+
+            async function saveFcmConfig() {
+                const errorEl = document.getElementById('fcm-config-error');
+
+                try {
+                    const config = {
+                        vapid_public_key: document.getElementById('fcm-vapid-public').value.trim(),
+                        vapid_private_key: document.getElementById('fcm-vapid-private').value.trim()
+                    };
+
+                    if (!config.vapid_public_key || !config.vapid_private_key) {
+                        errorEl.textContent = 'Both VAPID keys are required';
+                        errorEl.style.display = 'block';
+                        return;
+                    }
+
+                    errorEl.style.display = 'none';
+
+                    const response = await fetch('/api/account/fcm/update-config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        appAlert('✓ VAPID configuration saved successfully', 'Success');
+                        loadFcmConfigStatus();
+
+                        // Clear private key field for security
+                        document.getElementById('fcm-vapid-private').value = '';
+                    } else {
+                        errorEl.textContent = data.error || 'Failed to save configuration';
+                        errorEl.style.display = 'block';
+                    }
+                } catch (error) {
+                    errorEl.textContent = 'Network error. Please try again.';
+                    errorEl.style.display = 'block';
+                }
+            }
+
+            async function testFcmConfig() {
+                try {
+                    const response = await fetch('/api/account/fcm/test', {
+                        method: 'POST'
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        appAlert('✓ Test notification sent! Check your browser for the push notification.', 'Success');
+                    } else {
+                        appAlert('✗ Failed to send test notification: ' + data.error, 'Error');
+                    }
+                } catch (error) {
+                    appAlert('✗ Network error', 'Error');
+                }
+            }
+
+            // Load config status when Account Settings page opens
+            if (document.getElementById('fcm-config-status-badge')) {
+                loadFcmConfigStatus();
+            }
+            </script>
+
             <!-- Security Section -->
             <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
                 <div style="display: flex; align-items: center; margin-bottom: 20px;">
