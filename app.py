@@ -3129,6 +3129,69 @@ def api_account_test_crew():
     except Exception as e:
         return jsonify({"success": False, "error": f"Connection test failed: {str(e)}"}), 500
 
+@app.route('/api/account/bank-details', methods=['GET'])
+@login_required
+def api_account_bank_details():
+    """Fetch account and routing numbers from Crew Banking GraphQL"""
+    bearer_token = get_crew_bearer_token()
+
+    if not bearer_token:
+        return jsonify({"success": False, "error": "No Crew token configured"}), 400
+
+    try:
+        headers = {
+            "accept": "*/*",
+            "content-type": "application/json",
+            "authorization": bearer_token,
+            "user-agent": "Crew/1 CFNetwork/3860.300.31 Darwin/25.2.0"
+        }
+        query_string = """
+            query CashAccountDetails {
+                currentUser {
+                    spendAccount {
+                        accountNumber
+                        institution {
+                            routingNumber
+                        }
+                    }
+                    saveAccount {
+                        accountNumber
+                        institution {
+                            routingNumber
+                        }
+                    }
+                }
+            }
+        """
+        response = requests.post(
+            URL,
+            headers=headers,
+            json={"operationName": "CashAccountDetails", "query": query_string},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({"success": False, "error": "Failed to fetch bank details"}), 400
+
+        result = response.json()
+        if "errors" in result or not result.get("data", {}).get("currentUser"):
+            return jsonify({"success": False, "error": "Could not retrieve account details"}), 400
+
+        user = result["data"]["currentUser"]
+        spend = user.get("spendAccount") or {}
+        save = user.get("saveAccount") or {}
+
+        return jsonify({
+            "success": True,
+            "spendAccountNumber": spend.get("accountNumber", ""),
+            "spendRoutingNumber": (spend.get("institution") or {}).get("routingNumber", ""),
+            "saveAccountNumber": save.get("accountNumber", ""),
+            "saveRoutingNumber": (save.get("institution") or {}).get("routingNumber", "")
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Failed to fetch bank details: {str(e)}"}), 500
+
 @app.route('/api/account/simplefin/update-token', methods=['POST'])
 @login_required
 def api_account_update_simplefin_token():

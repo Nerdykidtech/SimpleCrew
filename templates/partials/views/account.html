@@ -1,479 +1,487 @@
 <div id="view-account" class="view-section">
     <div class="section-header-row"><span class="tab-title">My Account</span></div>
-    <div class="data-container" style="padding: 40px 20px;">
-        <div style="max-width: 800px; margin: 0 auto;">
-            <div style="text-align: center; margin-bottom: 40px;">
-                <div style="font-size: 48px; margin-bottom: 20px;">⚙️</div>
-                <h1 style="font-size: 32px; font-weight: 600; color: var(--text-dark); margin-bottom: 10px;">Account Settings</h1>
-                <p style="font-size: 18px; color: var(--text-light); line-height: 1.6;">
-                    Manage your API credentials and account configuration.
-                </p>
+    <div class="data-container" style="padding: 24px 20px;">
+        <div style="max-width: 700px; margin: 0 auto;">
+
+            <!-- Account Information -->
+            <div class="settings-category-label">Account</div>
+
+            <!-- Bank Account Details -->
+            <div class="settings-section collapsed" id="bank-details-section">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E8F5E9, #C8E6C9); color: #2E7D32;">&#x1f3e6;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Bank Account Details</div>
+                        <div class="settings-section-subtitle">Account & routing numbers</div>
+                    </div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div id="bank-details-content">
+                        <p style="font-size: 13px; color: var(--text-muted); margin: 12px 0;">Tap the eye icon to reveal your account details.</p>
+                        <div id="bank-details-loading" style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 13px;">Loading account details...</div>
+                        <div id="bank-details-data" style="display: none;">
+                            <div class="bank-account-card">
+                                <div class="bank-account-card-title">
+                                    <span style="font-size: 16px;">&#x1f4b3;</span> Crew Account
+                                </div>
+                                <div class="bank-detail-row">
+                                    <span class="bank-detail-label">Main Account #</span>
+                                    <div class="bank-detail-value">
+                                        <span id="spend-account-num" class="bank-detail-hidden">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>
+                                        <button class="bank-reveal-btn" onclick="toggleBankDetail('spend-account-num', event)">Show</button>
+                                    </div>
+                                </div>
+                                <div class="bank-detail-row">
+                                    <span class="bank-detail-label">Main Routing #</span>
+                                    <div class="bank-detail-value">
+                                        <span id="spend-routing-num" class="bank-detail-hidden">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>
+                                        <button class="bank-reveal-btn" onclick="toggleBankDetail('spend-routing-num', event)">Show</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="bank-details-error" style="display: none; color: #c00; font-size: 13px; padding: 12px; background: #fee; border-radius: 8px; margin-top: 12px;"></div>
+                    </div>
+                </div>
             </div>
 
-            <!-- Crew Banking Configuration -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🏦</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Crew Banking</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Primary banking connection</p>
+            <!-- API Connections -->
+            <div class="settings-category-label">Connections</div>
+
+            <!-- Crew Banking -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); color: #1565C0;">&#x1f3e6;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Crew Banking</div>
+                        <div class="settings-section-subtitle">Primary banking connection</div>
+                    </div>
+                    <div class="settings-section-badge" id="crew-status-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div id="crew-config-form" style="display: none; margin-top: 16px;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 13px;">Bearer Token</label>
+                            <input type="password" id="crew-token-input" placeholder="Enter Crew bearer token" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                            <p style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Find this in your Crew account settings under API access.</p>
+                        </div>
+                        <div id="crew-error" style="background: #fee; color: #c00; padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveCrewToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save Token</button>
+                            <button onclick="cancelCrewEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
                         </div>
                     </div>
-                    <div id="crew-status-badge"></div>
-                </div>
-
-                <div id="crew-config-form" style="display: none;">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Bearer Token</label>
-                        <input type="password" id="crew-token-input" placeholder="Enter Crew bearer token" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
-                            Find this in your Crew account settings under API access.
-                        </p>
-                    </div>
-                    <div id="crew-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="saveCrewToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Save Token
-                        </button>
-                        <button onclick="cancelCrewEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-
-                <div id="crew-config-display" style="display: none;">
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="editCrewToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Update Token
-                        </button>
-                        <button onclick="testCrewConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Test Connection
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- SimpleFin Configuration -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🔐</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">SimpleFin</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Credit card transaction sync</p>
+                    <div id="crew-config-display" style="display: none; margin-top: 16px;">
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="editCrewToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Update Token</button>
+                            <button onclick="testCrewConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Test Connection</button>
                         </div>
                     </div>
-                    <div id="simplefin-status-badge"></div>
-                </div>
-
-                <div id="simplefin-config-form" style="display: none;">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Setup Token</label>
-                        <input type="password" id="simplefin-token-input" placeholder="Enter SimpleFin setup token" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
-                            Get your setup token from <a href="https://bridge.simplefin.org/simplefin/claim" target="_blank" style="color: var(--simple-blue);">SimpleFin Bridge</a>.
-                        </p>
-                    </div>
-                    <div id="simplefin-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="saveSimpleFinToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Save Token
-                        </button>
-                        <button onclick="cancelSimpleFinEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-
-                <div id="simplefin-config-display" style="display: none;">
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="editSimpleFinToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Update Token
-                        </button>
-                        <button onclick="testSimpleFinConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Test Connection
-                        </button>
-                    </div>
                 </div>
             </div>
 
-            <!-- LunchFlow Configuration -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🍱</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">LunchFlow</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Alternative credit card sync</p>
+            <!-- SimpleFin -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #F3E5F5, #E1BEE7); color: #7B1FA2;">&#x1f510;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">SimpleFin</div>
+                        <div class="settings-section-subtitle">Credit card transaction sync</div>
+                    </div>
+                    <div class="settings-section-badge" id="simplefin-status-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div id="simplefin-config-form" style="display: none; margin-top: 16px;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 13px;">Setup Token</label>
+                            <input type="password" id="simplefin-token-input" placeholder="Enter SimpleFin setup token" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                            <p style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Get your setup token from <a href="https://bridge.simplefin.org/simplefin/claim" target="_blank" style="color: var(--simple-blue);">SimpleFin Bridge</a>.</p>
+                        </div>
+                        <div id="simplefin-error" style="background: #fee; color: #c00; padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveSimpleFinToken()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save Token</button>
+                            <button onclick="cancelSimpleFinEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
                         </div>
                     </div>
-                    <div id="lunchflow-status-badge"></div>
-                </div>
-
-                <div id="lunchflow-config-form" style="display: none;">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">API Key</label>
-                        <input type="password" id="lunchflow-apikey-input" placeholder="Enter LunchFlow API key" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
-                            Get your API key from <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow Dashboard</a>.
-                        </p>
-                    </div>
-                    <div id="lunchflow-account-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="saveLunchFlowKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Save API Key
-                        </button>
-                        <button onclick="cancelLunchFlowEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-
-                <div id="lunchflow-config-display" style="display: none;">
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="editLunchFlowKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Update API Key
-                        </button>
-                        <button onclick="testLunchFlowConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Test Connection
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Splitwise Configuration -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">📊</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Splitwise</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Expense sharing integration</p>
+                    <div id="simplefin-config-display" style="display: none; margin-top: 16px;">
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="editSimpleFinToken()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Update Token</button>
+                            <button onclick="testSimpleFinConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Test Connection</button>
                         </div>
                     </div>
-                    <div id="splitwise-status-badge"></div>
                 </div>
+            </div>
 
-                <div id="splitwise-config-form" style="display: none;">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">API Key</label>
-                        <input type="password" id="splitwise-apikey-input" placeholder="Enter Splitwise API key" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
-                            Get your API key from <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--simple-blue);">Splitwise Apps</a> (register an app to get an API key).
-                        </p>
+            <!-- LunchFlow -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #FFF3E0, #FFE0B2); color: #E65100;">&#x1f371;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">LunchFlow</div>
+                        <div class="settings-section-subtitle">Alternative credit card sync</div>
                     </div>
-                    <div id="splitwise-account-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="saveSplitwiseKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Save API Key
-                        </button>
-                        <button onclick="cancelSplitwiseEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Cancel
-                        </button>
-                    </div>
+                    <div class="settings-section-badge" id="lunchflow-status-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
                 </div>
-
-                <div id="splitwise-config-display" style="display: none;">
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="editSplitwiseKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Update API Key
-                        </button>
-                        <button onclick="testSplitwiseConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Test Connection
-                        </button>
+                <div class="settings-section-body">
+                    <div id="lunchflow-config-form" style="display: none; margin-top: 16px;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 13px;">API Key</label>
+                            <input type="password" id="lunchflow-apikey-input" placeholder="Enter LunchFlow API key" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                            <p style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Get your API key from <a href="https://lunchflow.app" target="_blank" style="color: var(--simple-blue);">LunchFlow Dashboard</a>.</p>
+                        </div>
+                        <div id="lunchflow-account-error" style="background: #fee; color: #c00; padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveLunchFlowKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save API Key</button>
+                            <button onclick="cancelLunchFlowEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="lunchflow-config-display" style="display: none; margin-top: 16px;">
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="editLunchFlowKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Update API Key</button>
+                            <button onclick="testLunchFlowConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Test Connection</button>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Splitwise -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E8F5E9, #C8E6C9); color: #2E7D32;">&#x1f4ca;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Splitwise</div>
+                        <div class="settings-section-subtitle">Expense sharing integration</div>
+                    </div>
+                    <div class="settings-section-badge" id="splitwise-status-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div id="splitwise-config-form" style="display: none; margin-top: 16px;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 13px;">API Key</label>
+                            <input type="password" id="splitwise-apikey-input" placeholder="Enter Splitwise API key" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                            <p style="font-size: 12px; color: var(--text-light); margin-top: 6px;">Get your API key from <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--simple-blue);">Splitwise Apps</a>.</p>
+                        </div>
+                        <div id="splitwise-account-error" style="background: #fee; color: #c00; padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveSplitwiseKey()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save API Key</button>
+                            <button onclick="cancelSplitwiseEdit()" style="flex: 1; background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="splitwise-config-display" style="display: none; margin-top: 16px;">
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="editSplitwiseKey()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Update API Key</button>
+                            <button onclick="testSplitwiseConnection()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Test Connection</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="settings-category-label">Notifications</div>
 
             <!-- Push Notifications -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🔔</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Push Notifications</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Get notified when credit card syncs complete</p>
-                        </div>
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #FFF8E1, #FFECB3); color: #F57F17;">&#x1f514;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Push Notifications</div>
+                        <div class="settings-section-subtitle">Credit card sync alerts</div>
                     </div>
-                    <div id="notification-status"></div>
+                    <div class="settings-section-badge" id="notification-status"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
                 </div>
-
-                <p style="font-size: 14px; color: var(--text-dark); margin-bottom: 16px;">
-                    Enable push notifications to receive alerts when new transactions are synced from your credit cards.
-                </p>
-
-                <button onclick="requestNotificationPermission()"
-                        style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                    Enable Notifications
-                </button>
+                <div class="settings-section-body">
+                    <p style="font-size: 13px; color: var(--text-dark); margin: 12px 0 16px 0;">
+                        Enable push notifications to receive alerts when new transactions are synced from your credit cards.
+                    </p>
+                    <button onclick="requestNotificationPermission()"
+                            style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
+                        Enable Notifications
+                    </button>
+                </div>
             </div>
 
             <!-- VAPID Configuration -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🔑</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">VAPID Keys</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Configure Web Push authentication keys</p>
-                        </div>
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E0F7FA, #B2EBF2); color: #00838F;">&#x1f511;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">VAPID Keys</div>
+                        <div class="settings-section-subtitle">Web Push authentication</div>
                     </div>
-                    <div id="fcm-config-status-badge"></div>
+                    <div class="settings-section-badge" id="fcm-config-status-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
                 </div>
-
-                <div style="background: var(--bg-elevated); border-left: 4px solid var(--simple-blue); padding: 16px; border-radius: 4px; margin-bottom: 24px;">
-                    <p style="font-size: 13px; color: var(--text-dark); margin: 0; line-height: 1.6;">
-                        <strong>Setup Instructions:</strong><br>
-                        1. Generate VAPID keys using an online tool like <a href="https://vapidkeys.com" target="_blank" style="color: var(--simple-blue);">vapidkeys.com</a><br>
-                        2. Or use the command: <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">npx web-push generate-vapid-keys</code><br>
-                        3. Copy both the public and private keys below<br>
-                        <strong>Note:</strong> These keys authenticate your server to send push notifications. Keep the private key secure!
-                    </p>
-                </div>
-
-                <div id="fcm-config-form">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">VAPID Public Key</label>
-                        <input type="text" id="fcm-vapid-public" placeholder="Enter VAPID public key"
-                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                    </div>
-
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">VAPID Private Key</label>
-                        <input type="password" id="fcm-vapid-private" placeholder="Enter VAPID private key"
-                               style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark);">
-                    </div>
-
-                    <div id="fcm-config-error" style="background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-
-                    <div style="display: flex; gap: 12px;">
-                        <button onclick="saveFcmConfig()"
-                                style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                            Save Configuration
-                        </button>
-                        <button onclick="testFcmConfig()"
-                                style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Send Test
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <script>
-            // Load FCM config status on page load
-            async function loadFcmConfigStatus() {
-                try {
-                    const response = await fetch('/api/account/fcm/config');
-                    const data = await response.json();
-
-                    const badgeEl = document.getElementById('fcm-config-status-badge');
-
-                    if (data.configured) {
-                        badgeEl.innerHTML = '<span style="background: #d4edda; color: #155724; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;">✓ Configured</span>';
-                    } else {
-                        badgeEl.innerHTML = '<span style="background: #e9ecef; color: #6c757d; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;">Not Configured</span>';
-                    }
-                } catch (error) {
-                    console.error('Failed to load FCM config status:', error);
-                }
-            }
-
-            async function saveFcmConfig() {
-                const errorEl = document.getElementById('fcm-config-error');
-
-                try {
-                    const config = {
-                        vapid_public_key: document.getElementById('fcm-vapid-public').value.trim(),
-                        vapid_private_key: document.getElementById('fcm-vapid-private').value.trim()
-                    };
-
-                    if (!config.vapid_public_key || !config.vapid_private_key) {
-                        errorEl.textContent = 'Both VAPID keys are required';
-                        errorEl.style.display = 'block';
-                        return;
-                    }
-
-                    errorEl.style.display = 'none';
-
-                    const response = await fetch('/api/account/fcm/update-config', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(config)
-                    });
-
-                    const data = await response.json();
-
-                    if (data.success) {
-                        appAlert('✓ VAPID configuration saved successfully', 'Success');
-                        loadFcmConfigStatus();
-
-                        // Clear private key field for security
-                        document.getElementById('fcm-vapid-private').value = '';
-                    } else {
-                        errorEl.textContent = data.error || 'Failed to save configuration';
-                        errorEl.style.display = 'block';
-                    }
-                } catch (error) {
-                    errorEl.textContent = 'Network error. Please try again.';
-                    errorEl.style.display = 'block';
-                }
-            }
-
-            async function testFcmConfig() {
-                try {
-                    const response = await fetch('/api/account/fcm/test', {
-                        method: 'POST'
-                    });
-
-                    const data = await response.json();
-
-                    if (data.success) {
-                        appAlert('✓ Test notification sent! Check your browser for the push notification.', 'Success');
-                    } else {
-                        appAlert('✗ Failed to send test notification: ' + data.error, 'Error');
-                    }
-                } catch (error) {
-                    appAlert('✗ Network error', 'Error');
-                }
-            }
-
-            // Load config status when Account Settings page opens
-            if (document.getElementById('fcm-config-status-badge')) {
-                loadFcmConfigStatus();
-            }
-            </script>
-
-            <!-- Security Section -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🔒</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Security</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Update your account password</p>
-                        </div>
-                    </div>
-                </div>
-
-                <form id="changePasswordForm" style="max-width: 500px;">
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Current Password</label>
-                        <input type="password" id="currentPassword" placeholder="Enter current password" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
-                    </div>
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">New Password</label>
-                        <input type="password" id="newPassword" placeholder="Enter new password (min. 8 characters)" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
-                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">
-                            Password must be at least 8 characters long.
+                <div class="settings-section-body">
+                    <div style="background: var(--bg-elevated); border-left: 3px solid var(--simple-blue); padding: 12px 16px; border-radius: 4px; margin: 12px 0 16px 0;">
+                        <p style="font-size: 12px; color: var(--text-dark); margin: 0; line-height: 1.6;">
+                            <strong>Setup:</strong> Generate keys at <a href="https://vapidkeys.com" target="_blank" style="color: var(--simple-blue);">vapidkeys.com</a>
+                            or run <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">npx web-push generate-vapid-keys</code>
                         </p>
                     </div>
-                    <div id="passwordMessage" style="padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                    <button type="submit" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                        Update Password
-                    </button>
-                </form>
-            </div>
-
-            <!-- Passkey Management Section -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">🔑</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Passkeys</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Passwordless login with Face ID, Touch ID, or security keys</p>
+                    <div id="fcm-config-form">
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">VAPID Public Key</label>
+                            <input type="text" id="fcm-vapid-public" placeholder="Enter VAPID public key"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">VAPID Private Key</label>
+                            <input type="password" id="fcm-vapid-private" placeholder="Enter VAPID private key"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: monospace; font-size: 13px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div id="fcm-config-error" style="background: #fee; color: #c00; padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="saveFcmConfig()" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save Configuration</button>
+                            <button onclick="testFcmConfig()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Send Test</button>
                         </div>
                     </div>
-                    <button id="showAddPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                        + Add Passkey
-                    </button>
-                </div>
-
-                <!-- Add Passkey Form (hidden by default) -->
-                <div id="addPasskeyForm" style="display: none; background: var(--bg-elevated); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-                    <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 16px 0;">Add New Passkey</h4>
-                    <div style="margin-bottom: 16px;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Nickname</label>
-                        <input type="text" id="passkeyNickname" placeholder='e.g., "My iPhone", "Security Key"' style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
-                    </div>
-                    <div style="display: flex; gap: 12px;">
-                        <button id="addPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; flex: 1;">
-                            Create Passkey
-                        </button>
-                        <button id="cancelAddPasskeyBtn" style="background: transparent; color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-
-                <div id="passkeysList" style="margin-top: 20px;">
-                    <p style="color: var(--text-light); text-align: center;">Loading passkeys...</p>
                 </div>
             </div>
 
-            <!-- WebAuthn Configuration Section -->
-            <div style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; margin-bottom: 20px;">
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="font-size: 36px;">⚙️</div>
-                        <div>
-                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-dark); margin: 0;">Passkey Configuration</h3>
-                            <p style="font-size: 14px; color: var(--text-light); margin: 4px 0 0 0;">Configure domain settings for passkey authentication</p>
+            <!-- Security -->
+            <div class="settings-category-label">Security</div>
+
+            <!-- Change Password -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #FCE4EC, #F8BBD0); color: #C62828;">&#x1f512;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Password</div>
+                        <div class="settings-section-subtitle">Update your account password</div>
+                    </div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <form id="changePasswordForm" style="margin-top: 12px;">
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">Current Password</label>
+                            <input type="password" id="currentPassword" placeholder="Enter current password" required style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
                         </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">New Password</label>
+                            <input type="password" id="newPassword" placeholder="Min. 8 characters" required style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div id="passwordMessage" style="padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <button type="submit" style="background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Update Password</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Passkeys -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #EDE7F6, #D1C4E9); color: #4527A0;">&#x1f511;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Passkeys</div>
+                        <div class="settings-section-subtitle">Face ID, Touch ID, or security keys</div>
+                    </div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div style="display: flex; justify-content: flex-end; margin-top: 12px; margin-bottom: 12px;">
+                        <button id="showAddPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">+ Add Passkey</button>
+                    </div>
+                    <div id="addPasskeyForm" style="display: none; background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="font-size: 14px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">Add New Passkey</h4>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">Nickname</label>
+                            <input type="text" id="passkeyNickname" placeholder='e.g., "My iPhone", "Security Key"' style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="addPasskeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; flex: 1;">Create Passkey</button>
+                            <button id="cancelAddPasskeyBtn" style="background: transparent; color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="passkeysList">
+                        <p style="color: var(--text-light); text-align: center; font-size: 13px;">Loading passkeys...</p>
                     </div>
                 </div>
+            </div>
 
-                <div style="max-width: 600px;">
-                    <div style="background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: start; gap: 12px;">
-                            <div style="font-size: 20px;">ℹ️</div>
-                            <div style="font-size: 13px; color: var(--text-light); line-height: 1.5;">
-                                <strong style="color: var(--text-dark);">For localhost development:</strong> Use <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">localhost</code> and <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">http://localhost:8080</code><br>
-                                <strong style="color: var(--text-dark); margin-top: 8px; display: block;">For production:</strong> Use your domain (e.g., <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">example.com</code>) and HTTPS URL (e.g., <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">https://example.com</code>)
-                            </div>
-                        </div>
+            <!-- Passkey Configuration -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #ECEFF1, #CFD8DC); color: #37474F;">&#x2699;&#xFE0F;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">Passkey Configuration</div>
+                        <div class="settings-section-subtitle">Domain settings for WebAuthn</div>
                     </div>
-
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div style="background: var(--bg-elevated); border-radius: 8px; padding: 12px 16px; margin: 12px 0 16px 0;">
+                        <p style="font-size: 12px; color: var(--text-light); line-height: 1.5; margin: 0;">
+                            <strong style="color: var(--text-dark);">Localhost:</strong> <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">localhost</code> / <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">http://localhost:8080</code><br>
+                            <strong style="color: var(--text-dark);">Production:</strong> Your domain and HTTPS URL
+                        </p>
+                    </div>
                     <form id="webauthnConfigForm">
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">
-                                Relying Party ID (RP_ID)
-                                <span style="font-weight: normal; color: var(--text-light); font-size: 13px;">— Your domain name</span>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">
+                                Relying Party ID <span style="font-weight: normal; color: var(--text-light); font-size: 12px;">- domain name</span>
                             </label>
-                            <input type="text" id="webauthnRpId" placeholder="localhost" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                            <input type="text" id="webauthnRpId" placeholder="localhost" required style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
                         </div>
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">
-                                Origin URL
-                                <span style="font-weight: normal; color: var(--text-light); font-size: 13px;">— Your full application URL</span>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">
+                                Origin URL <span style="font-weight: normal; color: var(--text-light); font-size: 12px;">- full app URL</span>
                             </label>
-                            <input type="text" id="webauthnOrigin" placeholder="http://localhost:8080" required style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark);">
+                            <input type="text" id="webauthnOrigin" placeholder="http://localhost:8080" required style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
                         </div>
-                        <div id="webauthnConfigMessage" style="padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none;"></div>
-                        <div style="display: flex; gap: 12px;">
-                            <button type="submit" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
-                                Save Configuration
-                            </button>
-                            <button type="button" onclick="testWebAuthnConfig()" style="background: var(--bg-elevated); color: var(--text-dark); border: 2px solid var(--border-color); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">
-                                Test Configuration
-                            </button>
+                        <div id="webauthnConfigMessage" style="padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 13px;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="submit" style="flex: 1; background: var(--simple-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Save Configuration</button>
+                            <button type="button" onclick="testWebAuthnConfig()" style="background: var(--bg-elevated); color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Test</button>
                         </div>
                     </form>
                 </div>
             </div>
 
-            <!-- Info Section -->
-            <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; margin-top: 32px;">
-                <h4 style="font-size: 16px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">💡 Security Note</h4>
-                <p style="font-size: 14px; color: var(--text-light); line-height: 1.6; margin: 0;">
-                    Your credentials are stored securely in your local database and are never transmitted except when validating against the respective APIs.
-                    Always keep your API keys and tokens private.
+            <!-- Security Note -->
+            <div style="background: var(--bg-elevated); border-radius: 10px; padding: 16px 20px; margin-top: 24px;">
+                <p style="font-size: 12px; color: var(--text-light); line-height: 1.6; margin: 0;">
+                    <strong style="color: var(--text-dark);">Security Note</strong> &mdash; Your credentials are stored securely in your local database and are never transmitted except when validating against the respective APIs.
                 </p>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Accordion toggle
+function toggleSettingsSection(headerEl) {
+    const section = headerEl.closest('.settings-section');
+    section.classList.toggle('collapsed');
+}
+
+// Bank detail reveal/hide
+const bankDetailData = {};
+function toggleBankDetail(id, event) {
+    event.stopPropagation();
+    const el = document.getElementById(id);
+    const btn = event.target;
+
+    if (el.dataset.revealed === 'true') {
+        el.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+        el.classList.add('bank-detail-hidden');
+        el.dataset.revealed = 'false';
+        btn.textContent = 'Show';
+    } else {
+        const val = bankDetailData[id];
+        if (val) {
+            el.textContent = val;
+            el.classList.remove('bank-detail-hidden');
+            el.dataset.revealed = 'true';
+            btn.textContent = 'Hide';
+        }
+    }
+}
+
+// Fetch bank account details
+async function loadBankAccountDetails() {
+    const loadingEl = document.getElementById('bank-details-loading');
+    const dataEl = document.getElementById('bank-details-data');
+    const errorEl = document.getElementById('bank-details-error');
+
+    try {
+        const response = await fetch('/api/account/bank-details');
+        const data = await response.json();
+
+        if (data.success) {
+            bankDetailData['spend-account-num'] = data.spendAccountNumber || 'N/A';
+            bankDetailData['spend-routing-num'] = data.spendRoutingNumber || 'N/A';
+
+            loadingEl.style.display = 'none';
+            dataEl.style.display = 'block';
+        } else {
+            loadingEl.style.display = 'none';
+            errorEl.textContent = data.error || 'Failed to load bank details';
+            errorEl.style.display = 'block';
+        }
+    } catch (error) {
+        loadingEl.style.display = 'none';
+        errorEl.textContent = 'Could not load bank details. Ensure Crew Banking is configured.';
+        errorEl.style.display = 'block';
+    }
+}
+
+// Load FCM config status
+async function loadFcmConfigStatus() {
+    try {
+        const response = await fetch('/api/account/fcm/config');
+        const data = await response.json();
+        const badgeEl = document.getElementById('fcm-config-status-badge');
+        if (data.configured) {
+            badgeEl.innerHTML = '<span style="background: #d4edda; color: #155724; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;">Configured</span>';
+        } else {
+            badgeEl.innerHTML = '<span style="background: #e9ecef; color: #6c757d; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;">Not Set</span>';
+        }
+    } catch (error) {
+        console.error('Failed to load FCM config status:', error);
+    }
+}
+
+async function saveFcmConfig() {
+    const errorEl = document.getElementById('fcm-config-error');
+    try {
+        const config = {
+            vapid_public_key: document.getElementById('fcm-vapid-public').value.trim(),
+            vapid_private_key: document.getElementById('fcm-vapid-private').value.trim()
+        };
+        if (!config.vapid_public_key || !config.vapid_private_key) {
+            errorEl.textContent = 'Both VAPID keys are required';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const response = await fetch('/api/account/fcm/update-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        const data = await response.json();
+        if (data.success) {
+            appAlert('VAPID configuration saved successfully', 'Success');
+            loadFcmConfigStatus();
+            document.getElementById('fcm-vapid-private').value = '';
+        } else {
+            errorEl.textContent = data.error || 'Failed to save configuration';
+            errorEl.style.display = 'block';
+        }
+    } catch (error) {
+        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.style.display = 'block';
+    }
+}
+
+async function testFcmConfig() {
+    try {
+        const response = await fetch('/api/account/fcm/test', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            appAlert('Test notification sent! Check your browser.', 'Success');
+        } else {
+            appAlert('Failed: ' + data.error, 'Error');
+        }
+    } catch (error) {
+        appAlert('Network error', 'Error');
+    }
+}
+
+// Init on load
+if (document.getElementById('fcm-config-status-badge')) {
+    loadFcmConfigStatus();
+}
+if (document.getElementById('bank-details-section')) {
+    loadBankAccountDetails();
+}
+</script>
 
 <script>
 // Password change form handler
@@ -495,19 +503,19 @@ document.getElementById('changePasswordForm')?.addEventListener('submit', async 
             messageDiv.style.display = 'block';
             messageDiv.style.background = '#d4edda';
             messageDiv.style.color = '#155724';
-            messageDiv.textContent = '✓ Password updated successfully';
+            messageDiv.textContent = 'Password updated successfully';
             document.getElementById('changePasswordForm').reset();
         } else {
             messageDiv.style.display = 'block';
             messageDiv.style.background = '#f8d7da';
             messageDiv.style.color = '#721c24';
-            messageDiv.textContent = '✗ ' + (data.error || 'Failed to update password');
+            messageDiv.textContent = data.error || 'Failed to update password';
         }
     } catch (error) {
         messageDiv.style.display = 'block';
         messageDiv.style.background = '#f8d7da';
         messageDiv.style.color = '#721c24';
-        messageDiv.textContent = '✗ Network error. Please try again.';
+        messageDiv.textContent = 'Network error. Please try again.';
     }
 });
 
@@ -516,48 +524,38 @@ async function loadPasskeys() {
     try {
         const response = await fetch('/api/auth/passkeys');
         const data = await response.json();
-
         const container = document.getElementById('passkeysList');
 
         if (data.passkeys.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-light); text-align: center;">No passkeys registered. Add one to enable passwordless login!</p>';
+            container.innerHTML = '<p style="color: var(--text-light); text-align: center; font-size: 13px;">No passkeys registered. Add one to enable passwordless login.</p>';
             return;
         }
 
         container.innerHTML = data.passkeys.map(passkey => `
-            <div style="background: var(--bg-elevated); border: 2px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-weight: 600; color: var(--text-dark); margin-bottom: 4px;">${passkey.nickname}</div>
-                    <div style="font-size: 13px; color: var(--text-light);">
+                    <div style="font-weight: 600; color: var(--text-dark); font-size: 14px; margin-bottom: 2px;">${passkey.nickname}</div>
+                    <div style="font-size: 12px; color: var(--text-light);">
                         Created: ${new Date(passkey.createdAt).toLocaleDateString()}
-                        ${passkey.lastUsedAt ? ` • Last used: ${new Date(passkey.lastUsedAt).toLocaleDateString()}` : ''}
-                        ${passkey.isSynced ? ' • 🔄 Synced' : ''}
+                        ${passkey.lastUsedAt ? ` &middot; Last used: ${new Date(passkey.lastUsedAt).toLocaleDateString()}` : ''}
+                        ${passkey.isSynced ? ' &middot; Synced' : ''}
                     </div>
                 </div>
-                <div style="display: flex; gap: 8px;">
-                    <button onclick="renamePasskey(${passkey.id})" style="background: transparent; border: 2px solid var(--border-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
-                        Rename
-                    </button>
-                    <button onclick="deletePasskey(${passkey.id})" style="background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
-                        Remove
-                    </button>
+                <div style="display: flex; gap: 6px;">
+                    <button onclick="renamePasskey(${passkey.id})" style="background: transparent; border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text-dark);">Rename</button>
+                    <button onclick="deletePasskey(${passkey.id})" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;">Remove</button>
                 </div>
             </div>
         `).join('');
-
     } catch (error) {
         console.error('Failed to load passkeys:', error);
-        document.getElementById('passkeysList').innerHTML = '<p style="color: #dc3545;">Failed to load passkeys</p>';
+        document.getElementById('passkeysList').innerHTML = '<p style="color: #dc3545; font-size: 13px;">Failed to load passkeys</p>';
     }
 }
 
-// Helper function to decode base64url to Uint8Array
 function base64urlToUint8Array(base64url) {
-    // Convert base64url to base64
     const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-    // Decode base64 to binary string
     const binaryString = atob(base64);
-    // Convert binary string to Uint8Array
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
@@ -565,15 +563,12 @@ function base64urlToUint8Array(base64url) {
     return bytes;
 }
 
-// Helper function to encode Uint8Array to base64url
 function uint8ArrayToBase64url(uint8Array) {
     const binaryString = String.fromCharCode(...uint8Array);
     const base64 = btoa(binaryString);
-    // Convert base64 to base64url
     return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-// Show/hide add passkey form
 document.getElementById('showAddPasskeyBtn')?.addEventListener('click', () => {
     document.getElementById('addPasskeyForm').style.display = 'block';
     document.getElementById('passkeyNickname').value = '';
@@ -584,7 +579,6 @@ document.getElementById('cancelAddPasskeyBtn')?.addEventListener('click', () => 
     document.getElementById('addPasskeyForm').style.display = 'none';
 });
 
-// Add passkey - NO PROMPT, direct from button click
 document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => {
     const nickname = document.getElementById('passkeyNickname').value.trim();
     if (!nickname) {
@@ -592,37 +586,20 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
         return;
     }
 
-    console.log('[Passkey Registration] Starting passkey registration...');
-    console.log('[Passkey Registration] Nickname:', nickname);
-    console.log('[Passkey Registration] User agent:', navigator.userAgent);
-    console.log('[Passkey Registration] WebAuthn support:', !!navigator.credentials);
-
     try {
-        console.log('[Passkey Registration] Step 1: Requesting registration options...');
-        // Get registration options
         const optionsRes = await fetch('/api/auth/webauthn/register/options', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
 
-        console.log('[Passkey Registration] Options response status:', optionsRes.status);
-
         if (!optionsRes.ok) {
             const error = await optionsRes.json();
-            console.error('[Passkey Registration] ERROR getting options:', error);
             alert('Failed to get registration options: ' + (error.error || 'Unknown error'));
             return;
         }
 
         const { sessionId, options } = await optionsRes.json();
-        console.log('[Passkey Registration] Session ID:', sessionId);
-        console.log('[Passkey Registration] Options received:', options.substring(0, 100) + '...');
-
-        console.log('[Passkey Registration] Step 2: Parsing options...');
-        // Parse options and convert base64url strings to Uint8Arrays
         const parsedOptions = JSON.parse(options);
-        console.log('[Passkey Registration] Challenge length:', parsedOptions.challenge.length);
-        console.log('[Passkey Registration] User ID length:', parsedOptions.user.id.length);
 
         const publicKey = {
             ...parsedOptions,
@@ -633,14 +610,8 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
             }
         };
 
-        console.log('[Passkey Registration] Step 3: Creating credential...');
-        // Create credential
         const credential = await navigator.credentials.create({ publicKey });
-        console.log('[Passkey Registration] Credential created:', credential.id.substring(0, 20) + '...');
-        console.log('[Passkey Registration] Credential type:', credential.type);
 
-        console.log('[Passkey Registration] Step 4: Preparing credential for server...');
-        // Prepare credential for server (convert Uint8Arrays back to base64url)
         const credentialJSON = {
             id: credential.id,
             rawId: uint8ArrayToBase64url(new Uint8Array(credential.rawId)),
@@ -652,90 +623,59 @@ document.getElementById('addPasskeyBtn')?.addEventListener('click', async () => 
             }
         };
 
-        console.log('[Passkey Registration] Transports:', credentialJSON.response.transports);
-
-        console.log('[Passkey Registration] Step 5: Verifying with server...');
-        // Verify with server
         const verifyRes = await fetch('/api/auth/webauthn/register/verify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId, credential: credentialJSON, nickname })
         });
 
-        console.log('[Passkey Registration] Verify response status:', verifyRes.status);
-
         const result = await verifyRes.json();
         if (result.success) {
-            console.log('[Passkey Registration] SUCCESS! Passkey registered.');
             alert('Passkey added successfully!');
             document.getElementById('addPasskeyForm').style.display = 'none';
             loadPasskeys();
         } else {
-            console.error('[Passkey Registration] ERROR: Verification failed:', result.error);
             alert('Failed to add passkey: ' + (result.error || 'Unknown error'));
         }
-
     } catch (error) {
-        console.error('[Passkey Registration] EXCEPTION:', error.name, error.message);
-        console.error('[Passkey Registration] Stack trace:', error.stack);
         alert('Failed to create passkey: ' + error.message + '. Make sure your device supports passkeys.');
     }
 });
 
-// Rename passkey
 async function renamePasskey(passkeyId) {
     const nickname = prompt('Enter new name:');
     if (!nickname) return;
-
     try {
         const response = await fetch(`/api/auth/passkeys/${passkeyId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nickname })
         });
-
         const result = await response.json();
-        if (result.success) {
-            loadPasskeys();
-        } else {
-            alert(result.error || 'Failed to rename');
-        }
-    } catch (error) {
-        alert('Network error');
-    }
+        if (result.success) loadPasskeys();
+        else alert(result.error || 'Failed to rename');
+    } catch (error) { alert('Network error'); }
 }
 
-// Delete passkey
 async function deletePasskey(passkeyId) {
     if (!confirm('Are you sure you want to remove this passkey?')) return;
-
     try {
-        const response = await fetch(`/api/auth/passkeys/${passkeyId}`, {
-            method: 'DELETE'
-        });
-
+        const response = await fetch(`/api/auth/passkeys/${passkeyId}`, { method: 'DELETE' });
         const result = await response.json();
-        if (result.success) {
-            loadPasskeys();
-        } else {
-            alert(result.error || 'Failed to delete');
-        }
-    } catch (error) {
-        alert('Network error');
-    }
+        if (result.success) loadPasskeys();
+        else alert(result.error || 'Failed to delete');
+    } catch (error) { alert('Network error'); }
 }
 
-// Load passkeys when account tab is opened
 if (document.getElementById('passkeysList')) {
     loadPasskeys();
 }
 
-// WebAuthn Configuration Management
+// WebAuthn Configuration
 async function loadWebAuthnConfig() {
     try {
         const response = await fetch('/api/account/webauthn/config');
         const data = await response.json();
-
         document.getElementById('webauthnRpId').value = data.rp_id || '';
         document.getElementById('webauthnOrigin').value = data.origin || '';
     } catch (error) {
@@ -743,74 +683,65 @@ async function loadWebAuthnConfig() {
     }
 }
 
-// Test WebAuthn configuration
 async function testWebAuthnConfig() {
     const rpId = document.getElementById('webauthnRpId').value;
     const origin = document.getElementById('webauthnOrigin').value;
     const messageDiv = document.getElementById('webauthnConfigMessage');
-
     try {
         const response = await fetch('/api/account/webauthn/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rp_id: rpId, origin: origin })
         });
-
         const data = await response.json();
         messageDiv.style.display = 'block';
-
         if (data.success) {
             messageDiv.style.background = '#d4edda';
             messageDiv.style.color = '#155724';
-            messageDiv.textContent = '✓ ' + data.message;
+            messageDiv.textContent = data.message;
         } else {
             messageDiv.style.background = '#f8d7da';
             messageDiv.style.color = '#721c24';
-            messageDiv.textContent = '✗ ' + data.error;
+            messageDiv.textContent = data.error;
         }
     } catch (error) {
         messageDiv.style.display = 'block';
         messageDiv.style.background = '#f8d7da';
         messageDiv.style.color = '#721c24';
-        messageDiv.textContent = '✗ Network error. Please try again.';
+        messageDiv.textContent = 'Network error. Please try again.';
     }
 }
 
-// Save WebAuthn configuration
 document.getElementById('webauthnConfigForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const rpId = document.getElementById('webauthnRpId').value;
     const origin = document.getElementById('webauthnOrigin').value;
     const messageDiv = document.getElementById('webauthnConfigMessage');
-
     try {
         const response = await fetch('/api/account/webauthn/update-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rp_id: rpId, origin: origin })
         });
-
         const data = await response.json();
         messageDiv.style.display = 'block';
-
         if (data.success) {
             messageDiv.style.background = '#d4edda';
             messageDiv.style.color = '#155724';
-            messageDiv.textContent = '✓ ' + data.message;
+            messageDiv.textContent = data.message;
         } else {
             messageDiv.style.background = '#f8d7da';
             messageDiv.style.color = '#721c24';
-            messageDiv.textContent = '✗ ' + data.error;
+            messageDiv.textContent = data.error;
         }
     } catch (error) {
         messageDiv.style.display = 'block';
         messageDiv.style.background = '#f8d7da';
         messageDiv.style.color = '#721c24';
-        messageDiv.textContent = '✗ Network error. Please try again.';
+        messageDiv.textContent = 'Network error. Please try again.';
     }
 });
 
-// Load WebAuthn config when account tab is opened
 if (document.getElementById('webauthnConfigForm')) {
     loadWebAuthnConfig();
 }
