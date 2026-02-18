@@ -94,7 +94,7 @@ function loadCards(forceRefresh = false) {
                 const optionsHtml = buildSpendOptionsHtml(card.current_spend_id);
 
                 html += `
-                <div class="card-row">
+                <div class="card-row" onclick="openCardDetail('${card.id}', '${bg}')" style="cursor:pointer;">
                     <div class="card-icon" style="background-color: ${bg};"></div>
                     <div class="card-info">
                         <div class="card-name">${card.holder}</div>
@@ -176,7 +176,7 @@ function renderVirtualCard(card) {
     }
 
     return `
-    <div class="card-row card-row-virtual">
+    <div class="card-row card-row-virtual" onclick="openCardDetail('${card.id}', '${bg}')" style="cursor:pointer;">
         <div class="card-icon card-icon-virtual" style="background: linear-gradient(135deg, ${bg} 0%, ${adjustColor(bg, -30)} 100%);">
             <div class="virtual-chip"></div>
         </div>
@@ -260,4 +260,237 @@ function updateSpendPocket(selectElement, userId, cardId) {
         selectElement.style.opacity = "1";
         appAlert("Network error occurred.", "Error");
     });
+}
+
+/**
+ * Open card detail modal
+ * @param {string} cardId - The card ID
+ * @param {string} cardColor - Hex color for the card visual
+ */
+function openCardDetail(cardId, cardColor) {
+    const modal = document.getElementById('tx-modal');
+    modal.style.display = 'flex';
+    document.getElementById('modal-title-text').innerText = 'Card Details';
+    document.getElementById('modal-body-content').innerHTML = `
+        <div style="text-align:center; padding: 30px 0;">
+            <div class="card-detail-spinner"></div>
+            <div style="color: var(--text-muted); margin-top: 12px; font-size: 13px;">Loading card details...</div>
+        </div>`;
+
+    fetch(`/api/cards/${encodeURIComponent(cardId)}/details`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('modal-body-content').innerHTML = `
+                    <div style="text-align:center; padding:20px; color:var(--alert-red);">${data.error}</div>`;
+                return;
+            }
+            renderCardDetailModal(cardId, data, cardColor);
+        })
+        .catch(err => {
+            console.error('Error loading card details:', err);
+            document.getElementById('modal-body-content').innerHTML = `
+                <div style="text-align:center; padding:20px; color:var(--alert-red);">Failed to load card details</div>`;
+        });
+}
+
+/**
+ * Render the card detail modal content
+ */
+function renderCardDetailModal(cardId, data, cardColor) {
+    const bg = cardColor || '#333';
+    const isFrozen = data.frozenStatus === 'FROZEN';
+    const addr = data.billingAddress || {};
+    const addressStr = [addr.street1, addr.street2, [addr.city, addr.state, addr.postalCode].filter(Boolean).join(', ')].filter(Boolean).join('<br>');
+
+    // Format expiration
+    let expDisplay = data.expirationDate || '—';
+    if (data.expirationDate && data.expirationDate.length >= 7) {
+        const parts = data.expirationDate.split('-');
+        if (parts.length >= 2) expDisplay = `${parts[1]}/${parts[0].slice(2)}`;
+    }
+
+    // Format limit
+    let limitDisplay = '—';
+    if (data.monthlyLimit) {
+        limitDisplay = fmt(data.monthlyLimit / 100);
+        if (data.monthlySpendToDate !== null && data.monthlySpendToDate !== undefined) {
+            limitDisplay += ` (${fmt(data.monthlySpendToDate / 100)} spent)`;
+        }
+    }
+
+    const statusBadge = isFrozen
+        ? '<span class="card-modal-status frozen">Frozen</span>'
+        : '<span class="card-modal-status active">Active</span>';
+
+    // Determine card type label
+    const typeLabel = (data.type === 'VIRTUAL' || data.type === 'SINGLE_USE')
+        ? (data.type === 'SINGLE_USE' ? 'Single-Use' : 'Virtual')
+        : 'Physical';
+
+    document.getElementById('modal-body-content').innerHTML = `
+        <div class="card-detail-container">
+            <!-- Card Visual -->
+            <div class="card-detail-visual" style="background: linear-gradient(135deg, ${bg} 0%, ${adjustColor(bg, -30)} 50%, ${adjustColor(bg, -50)} 100%);">
+                <div class="card-visual-brand">VISA</div>
+                <div class="card-visual-contactless"><span></span></div>
+                <div class="card-visual-chip">
+                    <div class="card-visual-chip-line"></div>
+                    <div class="card-visual-chip-line"></div>
+                </div>
+                <div class="card-visual-number" id="card-visual-num">&bull;&bull;&bull;&bull;  &bull;&bull;&bull;&bull;  &bull;&bull;&bull;&bull;  ${data.lastFour || '????'}</div>
+                <div class="card-visual-bottom">
+                    <div class="card-visual-name">${data.cardholderName || ''}</div>
+                    <div class="card-visual-exp-group">
+                        <span class="card-visual-exp-label">Valid Thru</span>
+                        <span class="card-visual-exp">${expDisplay}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status -->
+            <div class="card-detail-status-row">
+                ${statusBadge}
+                <span class="card-detail-type">${typeLabel}</span>
+            </div>
+
+            <!-- Sensitive Data -->
+            <div class="card-detail-section-label">Sensitive Information</div>
+            <div class="card-sensitive-group">
+                <div class="card-sensitive-row" id="card-pan-row">
+                    <span class="card-sensitive-label">Card Number</span>
+                    <div class="card-sensitive-value">
+                        <span id="card-pan-display" class="bank-detail-hidden">&bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; ${data.lastFour || '????'}</span>
+                        <button class="bank-reveal-btn" id="card-reveal-btn" onclick="loadCardSensitive('${cardId}')">Show</button>
+                    </div>
+                </div>
+                <div class="card-sensitive-row" id="card-cvv-row">
+                    <span class="card-sensitive-label">CVV</span>
+                    <div class="card-sensitive-value">
+                        <span id="card-cvv-display" class="bank-detail-hidden">&bull;&bull;&bull;</span>
+                        <button class="bank-reveal-btn" id="card-cvv-reveal-btn" onclick="loadCardSensitive('${cardId}')" style="visibility:hidden;">Show</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Details -->
+            <div class="card-detail-section-label">Card Details</div>
+            <div class="card-detail-info-group">
+                <div class="card-detail-info-row">
+                    <span>Cardholder</span>
+                    <span>${data.cardholderName || '—'}</span>
+                </div>
+                <div class="card-detail-info-row">
+                    <span>Expiration</span>
+                    <span>${expDisplay}</span>
+                </div>
+                <div class="card-detail-info-row">
+                    <span>Last Four</span>
+                    <span>${data.lastFour || '—'}</span>
+                </div>
+                ${data.monthlyLimit ? `
+                <div class="card-detail-info-row">
+                    <span>Monthly Limit</span>
+                    <span>${limitDisplay}</span>
+                </div>` : ''}
+            </div>
+            ${addressStr ? `
+            <div class="card-detail-section-label">Billing Address</div>
+            <div class="card-detail-address">${addressStr}</div>` : ''}
+        </div>
+    `;
+}
+
+/** Store sensitive data once loaded */
+let _cardSensitiveCache = {};
+
+/**
+ * Load and reveal sensitive card data (PAN + CVV)
+ * @param {string} cardId - The card ID
+ */
+function loadCardSensitive(cardId) {
+    const panEl = document.getElementById('card-pan-display');
+    const cvvEl = document.getElementById('card-cvv-display');
+    const revealBtn = document.getElementById('card-reveal-btn');
+    const cvvRevealBtn = document.getElementById('card-cvv-reveal-btn');
+
+    // Toggle hide if already revealed
+    if (panEl && panEl.dataset.revealed === 'true') {
+        const lastFour = panEl.dataset.lastfour || '????';
+        panEl.textContent = '\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 ' + lastFour;
+        panEl.classList.add('bank-detail-hidden');
+        panEl.dataset.revealed = 'false';
+        revealBtn.textContent = 'Show';
+
+        cvvEl.textContent = '\u2022\u2022\u2022';
+        cvvEl.classList.add('bank-detail-hidden');
+        cvvEl.dataset.revealed = 'false';
+        cvvRevealBtn.style.visibility = 'hidden';
+
+        // Update card visual back to masked
+        const cardNum = document.getElementById('card-visual-num');
+        if (cardNum) cardNum.innerHTML = '&bull;&bull;&bull;&bull;  &bull;&bull;&bull;&bull;  &bull;&bull;&bull;&bull;  ' + lastFour;
+        return;
+    }
+
+    // If we have cached data, just reveal
+    if (_cardSensitiveCache[cardId]) {
+        revealSensitiveData(_cardSensitiveCache[cardId]);
+        return;
+    }
+
+    // Show loading state
+    revealBtn.textContent = 'Loading...';
+    revealBtn.disabled = true;
+
+    fetch(`/api/cards/${encodeURIComponent(cardId)}/sensitive`)
+        .then(res => res.json())
+        .then(data => {
+            revealBtn.disabled = false;
+            if (data.error) {
+                revealBtn.textContent = 'Show';
+                appAlert('Could not load card data: ' + data.error, 'Error');
+                return;
+            }
+            _cardSensitiveCache[cardId] = data;
+            revealSensitiveData(data);
+        })
+        .catch(err => {
+            console.error('Error loading sensitive data:', err);
+            revealBtn.disabled = false;
+            revealBtn.textContent = 'Show';
+            appAlert('Network error loading card data.', 'Error');
+        });
+}
+
+/**
+ * Reveal PAN and CVV in the modal
+ */
+function revealSensitiveData(data) {
+    const panEl = document.getElementById('card-pan-display');
+    const cvvEl = document.getElementById('card-cvv-display');
+    const revealBtn = document.getElementById('card-reveal-btn');
+    const cvvRevealBtn = document.getElementById('card-cvv-reveal-btn');
+
+    if (panEl && data.pan) {
+        // Format PAN with spaces every 4 digits
+        const formatted = data.pan.replace(/(.{4})/g, '$1 ').trim();
+        panEl.textContent = formatted;
+        panEl.classList.remove('bank-detail-hidden');
+        panEl.dataset.revealed = 'true';
+        panEl.dataset.lastfour = data.pan.slice(-4);
+        revealBtn.textContent = 'Hide';
+
+        // Update card visual with full number
+        const cardNum = document.getElementById('card-visual-num');
+        if (cardNum) cardNum.textContent = formatted;
+    }
+
+    if (cvvEl && data.cvv) {
+        cvvEl.textContent = data.cvv;
+        cvvEl.classList.remove('bank-detail-hidden');
+        cvvEl.dataset.revealed = 'true';
+        cvvRevealBtn.style.visibility = 'visible';
+        cvvRevealBtn.textContent = 'Hide';
+    }
 }

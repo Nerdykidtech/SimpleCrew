@@ -3633,6 +3633,141 @@ def api_cards():
     refresh = request.args.get('refresh') == 'true'
     return jsonify(get_cards_data(force_refresh=refresh))
 
+@app.route('/api/cards/<card_id>/details')
+@login_required
+def api_card_details(card_id):
+    """Get full card details (cardholder, expiration, billing address, limits)"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        query = """
+        query CardDetails($id: ID!) {
+          node(id: $id) {
+            ... on DebitCard {
+              id
+              type
+              color
+              status
+              lastFour
+              frozenStatus
+              monthlyLimit
+              monthlySpendToDate
+              name
+              user {
+                id
+                firstName
+                lastName
+                __typename
+              }
+              billingAddress {
+                address1
+                address2
+                city
+                state
+                zip
+                __typename
+              }
+              expirationDate
+              __typename
+            }
+          }
+        }
+        """
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "CardDetails",
+            "variables": {"id": card_id},
+            "query": query
+        })
+        data = response.json()
+
+        # Log for debugging
+        if data.get("errors"):
+            print(f"CardDetails GraphQL errors: {data['errors']}")
+            return jsonify({"error": data["errors"][0].get("message", "GraphQL error")}), 400
+
+        card = data.get("data", {}).get("node")
+        if not card:
+            return jsonify({"error": "Card not found"}), 404
+
+        user = card.get("user") or {}
+        address = card.get("billingAddress") or {}
+
+        return jsonify({
+            "id": card.get("id"),
+            "type": card.get("type"),
+            "color": card.get("color"),
+            "status": card.get("status"),
+            "lastFour": card.get("lastFour"),
+            "frozenStatus": card.get("frozenStatus"),
+            "cardholderName": f"{user.get('firstName', '')} {user.get('lastName', '')}".strip(),
+            "expirationDate": card.get("expirationDate"),
+            "monthlyLimit": card.get("monthlyLimit"),
+            "monthlySpendToDate": card.get("monthlySpendToDate"),
+            "billingAddress": {
+                "street1": address.get("address1", ""),
+                "street2": address.get("address2", ""),
+                "city": address.get("city", ""),
+                "state": address.get("state", ""),
+                "postalCode": address.get("zip", "")
+            }
+        })
+    except Exception as e:
+        print(f"Error fetching card details: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/cards/<card_id>/sensitive')
+@login_required
+def api_card_sensitive(card_id):
+    """Get sensitive card data (full PAN + CVV) via CDE token exchange"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        # Step 1: Generate a SAD token for viewing card data
+        mutation = """
+        mutation GenerateViewSadToken($input: GenerateViewSadTokenInput!) {
+          generateViewSadToken(input: $input) {
+            result
+            __typename
+          }
+        }
+        """
+
+        token_response = requests.post(URL, headers=headers, json={
+            "operationName": "GenerateViewSadToken",
+            "variables": {"input": {"debitCardId": card_id}},
+            "query": mutation
+        })
+        token_data = token_response.json()
+
+        sad_token = token_data.get("data", {}).get("generateViewSadToken", {}).get("result")
+        if not sad_token:
+            errors = token_data.get("errors", [])
+            error_msg = errors[0].get("message") if errors else "Failed to generate token"
+            return jsonify({"error": error_msg}), 400
+
+        # Step 2: Use SAD token to fetch card data from CDE
+        cde_response = requests.get(
+            "https://cde.trycrew.com/wally/debit_card",
+            headers={"Authorization": f"Bearer {sad_token}"}
+        )
+
+        if cde_response.status_code != 200:
+            return jsonify({"error": "Failed to retrieve card data from CDE"}), 502
+
+        cde_data = cde_response.json()
+        return jsonify({
+            "pan": cde_data.get("pan", ""),
+            "cvv": cde_data.get("cvv", "")
+        })
+    except Exception as e:
+        print(f"Error fetching sensitive card data: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # 3. CREATE THE MISSING MOVE/REORDER ENDPOINT
 @app.route('/api/groups/move-pocket', methods=['POST'])
 @login_required
