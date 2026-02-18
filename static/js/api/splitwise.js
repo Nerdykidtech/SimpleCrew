@@ -236,7 +236,7 @@ function renderFriendPockets(pockets) {
                 const balance = goal ? goal.balance : 0;
 
                 html += `
-                    <div style="padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 3px solid var(--simple-blue);">
+                    <div style="padding: 15px; background: var(--bg-elevated); border-radius: 8px; border-left: 3px solid var(--simple-blue);">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="font-weight: 600; color: var(--text-dark);">${pocket.friendName}</div>
                             <div style="font-size: 16px; font-weight: bold; color: var(--simple-blue);">${fmt(balance)}</div>
@@ -253,7 +253,7 @@ function renderFriendPockets(pockets) {
             let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
             pockets.forEach(pocket => {
                 html += `
-                    <div style="padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 3px solid var(--simple-blue);">
+                    <div style="padding: 15px; background: var(--bg-elevated); border-radius: 8px; border-left: 3px solid var(--simple-blue);">
                         <div style="font-weight: 600; color: var(--text-dark);">${pocket.friendName}</div>
                     </div>
                 `;
@@ -299,16 +299,21 @@ function renderFriendBalances(balances) {
 
     balances.forEach(balance => {
         const theyOweYou = balance.balance > 0;
-        const bgColor = theyOweYou ? '#e8f5e9' : '#f9f9f9';
-        const borderColor = theyOweYou ? '#4caf50' : 'var(--border-color)';
+        const youOwe = balance.balance < 0;
+        const settled = balance.balance === 0;
+
+        const bgColor = theyOweYou ? 'rgba(76,175,80,0.12)' : youOwe ? 'rgba(239,83,80,0.12)' : 'var(--bg-elevated)';
+        const borderColor = theyOweYou ? '#4caf50' : youOwe ? '#ef5350' : 'var(--border-color)';
+        const amountColor = theyOweYou ? '#4caf50' : youOwe ? '#ef5350' : 'var(--text-light)';
+        const label = theyOweYou ? 'They owe you' : youOwe ? 'You owe them' : 'Settled';
 
         html += `
             <div style="padding: 12px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${borderColor};">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="font-weight: 600; color: var(--text-dark);">${balance.friendName}</div>
                     <div style="text-align: right;">
-                        <div style="font-size: 16px; font-weight: bold; color: ${theyOweYou ? '#4caf50' : 'var(--text-light)'};">${fmt(balance.balance)}</div>
-                        ${theyOweYou ? '<div style="font-size: 11px; color: #4caf50;">They owe you</div>' : '<div style="font-size: 11px; color: var(--text-light);">Settled</div>'}
+                        <div style="font-size: 16px; font-weight: bold; color: ${amountColor};">${fmt(Math.abs(balance.balance))}</div>
+                        <div style="font-size: 11px; color: ${amountColor};">${label}</div>
                     </div>
                 </div>
             </div>

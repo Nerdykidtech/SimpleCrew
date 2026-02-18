@@ -31,6 +31,7 @@ from webauthn.helpers.structs import (
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 app = Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Never cache static files — forces browser/SW to always get fresh JS/CSS
 
 # --- CONFIGURATION ---
 URL = "https://api.trycrew.com/willow/graphql"
@@ -2952,7 +2953,10 @@ def serve_manifest():
 
 @app.route('/sw.js')
 def serve_sw():
-    return send_from_directory('static', 'sw.js', mimetype='application/javascript')
+    response = send_from_directory('static', 'sw.js', mimetype='application/javascript')
+    # Must never be cached — browser needs to re-check on every load to detect updates
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
 
 # --- ONBOARDING API ENDPOINTS ---
 @app.route('/api/onboarding/status')
@@ -5600,7 +5604,8 @@ def check_splitwise_balances():
 
         if not config:
             conn.close()
-            return  # Splitwise not configured
+            print("⏭️ Splitwise: not configured, skipping", flush=True)
+            return
 
         last_sync_str, sync_interval = config
 
@@ -5610,13 +5615,18 @@ def check_splitwise_balances():
             time_since_sync = (datetime.now() - last_sync).total_seconds()
 
             if time_since_sync < sync_interval:
+                remaining = int(sync_interval - time_since_sync)
+                print(f"⏭️ Splitwise: next sync in {remaining}s", flush=True)
                 conn.close()
-                return  # Not time yet
+                return
+
+        print("🔄 Splitwise: starting balance sync...", flush=True)
 
         # Time to sync - get API key
         api_key = get_splitwise_api_key()
         if not api_key:
             conn.close()
+            print("⏭️ Splitwise: no API key configured", flush=True)
             return
 
         # Fetch friends list
@@ -7056,11 +7066,11 @@ def api_splitwise_friend_balances():
             last_name = friend.get("last_name", "")
             friend_name = f"{first_name} {last_name}".strip() or f"User {friend_id}"
 
-            # Include all tracked friends with their absolute balance values
+            # Positive balance = they owe you; negative = you owe them
             balances.append({
                 "friendId": friend_id,
                 "friendName": friend_name,
-                "balance": round(abs(balance), 2),  # Absolute value for display
+                "balance": round(balance, 2),
                 "pocketId": tracked_friends[friend_id]
             })
 
