@@ -803,11 +803,11 @@ def send_sync_complete_notification(user_id, transaction_count, account_names):
 
     # Build notification
     if len(account_names) == 1:
-        title = f"New transactions on {account_names[0]}"
-        body = f"{transaction_count} new transaction(s) synced"
+        title = account_names[0]
+        body = f"{transaction_count} new transaction{'s' if transaction_count != 1 else ''}"
     else:
-        title = "Credit card sync complete"
-        body = f"{transaction_count} new transaction(s) across {len(account_names)} accounts"
+        title = "Credit Cards"
+        body = f"{transaction_count} new across {len(account_names)} accounts"
 
     # Send via Web Push
     try:
@@ -869,6 +869,79 @@ def send_sync_complete_notification(user_id, transaction_count, account_names):
 
     except Exception as e:
         print(f"❌ Failed to send push notification: {e}")
+
+def send_splitwise_notification(user_id, friends_changed):
+    """Send Web Push notification for Splitwise balance changes"""
+    fcm_config = get_fcm_config()
+    if not fcm_config:
+        return  # VAPID not configured, skip silently
+
+    # Get active tokens for user
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT token FROM fcm_tokens WHERE user_id = ? AND is_active = 1", (user_id,))
+    tokens = [row[0] for row in c.fetchall()]
+    conn.close()
+
+    if not tokens:
+        print(f"📱 No push subscriptions for user {user_id}")
+        return
+
+    # Build notification
+    if len(friends_changed) == 1:
+        title = "Splitwise"
+        body = f"{friends_changed[0]} balance updated"
+    else:
+        title = "Splitwise"
+        body = f"{len(friends_changed)} balances updated"
+
+    # Send via Web Push
+    try:
+        from pywebpush import webpush, WebPushException
+
+        payload = json.dumps({
+            "notification": {
+                "title": title,
+                "body": body
+            }
+        })
+
+        success_count = 0
+        failed_tokens = []
+
+        for token_json in tokens:
+            try:
+                subscription_info = json.loads(token_json)
+
+                webpush(
+                    subscription_info=subscription_info,
+                    data=payload,
+                    vapid_private_key=fcm_config['vapid_private_key'],
+                    vapid_claims={"sub": "mailto:notifications@example.com"},
+                    ttl=86400
+                )
+                success_count += 1
+
+            except WebPushException as e:
+                print(f"⚠️ WebPushException: {e}")
+                if e.response and e.response.status_code in [404, 410]:
+                    failed_tokens.append(token_json)
+            except Exception as e:
+                print(f"⚠️ Failed to send to token: {e}")
+
+        print(f"✅ Sent Splitwise notification to {success_count}/{len(tokens)} devices: {title}")
+
+        # Mark invalid tokens as inactive
+        if failed_tokens:
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            for token in failed_tokens:
+                c.execute("UPDATE fcm_tokens SET is_active = 0 WHERE token = ?", (token,))
+            conn.commit()
+            conn.close()
+
+    except Exception as e:
+        print(f"❌ Failed to send Splitwise notification: {e}")
 
 # --- API HELPERS ---
 def get_crew_headers():
@@ -5515,11 +5588,140 @@ def api_last_check_time():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def check_splitwise_balances():
+    """Check if it's time to sync Splitwise and send notifications if balances changed"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+
+        # Get Splitwise config
+        c.execute("SELECT last_sync, sync_interval FROM splitwise_config LIMIT 1")
+        config = c.fetchone()
+
+        if not config:
+            conn.close()
+            return  # Splitwise not configured
+
+        last_sync_str, sync_interval = config
+
+        # Check if it's time to sync
+        if last_sync_str:
+            last_sync = datetime.fromisoformat(last_sync_str)
+            time_since_sync = (datetime.now() - last_sync).total_seconds()
+
+            if time_since_sync < sync_interval:
+                conn.close()
+                return  # Not time yet
+
+        # Time to sync - get API key
+        api_key = get_splitwise_api_key()
+        if not api_key:
+            conn.close()
+            return
+
+        # Fetch friends list
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get(
+            "https://secure.splitwise.com/api/v3.0/get_friends",
+            headers=headers,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            conn.close()
+            return
+
+        # Get tracked friends
+        c.execute("SELECT friend_id, friend_name, pocket_id FROM splitwise_pocket_config")
+        tracked_friends = {row[0]: {"name": row[1], "pocket_id": row[2]} for row in c.fetchall()}
+
+        if not tracked_friends:
+            conn.close()
+            return
+
+        # Track changes for notifications
+        friends_changed = []
+
+        crew_headers = get_crew_headers()
+        checking_id = get_primary_account_id()
+
+        if not crew_headers or not checking_id:
+            conn.close()
+            return
+
+        friends_data = response.json()
+
+        for friend in friends_data.get("friends", []):
+            friend_id = friend.get("id")
+
+            if friend_id not in tracked_friends:
+                continue
+
+            tracked = tracked_friends[friend_id]
+            pocket_id = tracked["pocket_id"]
+            friend_name = tracked["name"]
+
+            # Get Splitwise balance
+            balance_list = friend.get("balance", [])
+            if isinstance(balance_list, list) and len(balance_list) > 0:
+                splitwise_balance = float(balance_list[0].get("amount", "0"))
+            else:
+                splitwise_balance = float(balance_list) if balance_list else 0.0
+
+            amount_owed = abs(splitwise_balance) if splitwise_balance < 0 else 0
+
+            # Get current pocket balance
+            query_string = """query GetSubaccount($id: ID!) { node(id: $id) { ... on Subaccount { id overallBalance } } }"""
+            pocket_response = requests.post(URL, headers=crew_headers, json={
+                "operationName": "GetSubaccount",
+                "variables": {"id": pocket_id},
+                "query": query_string
+            })
+            pocket_data = pocket_response.json()
+            current_balance_cents = pocket_data.get("data", {}).get("node", {}).get("overallBalance", 0)
+            current_balance = current_balance_cents / 100.0
+
+            # Calculate difference
+            difference = amount_owed - current_balance
+
+            if abs(difference) >= 0.01:  # Balance changed
+                if difference > 0:
+                    result = move_money(checking_id, pocket_id, difference, f"Splitwise sync: {friend_name}")
+                    if not result.get("error"):
+                        friends_changed.append(friend_name)
+                        print(f"➕ Splitwise: Added ${difference:.2f} to {friend_name}'s pocket", flush=True)
+                else:
+                    amount_to_remove = abs(difference)
+                    result = move_money(pocket_id, checking_id, amount_to_remove, f"Splitwise sync: {friend_name}")
+                    if not result.get("error"):
+                        friends_changed.append(friend_name)
+                        print(f"➖ Splitwise: Removed ${amount_to_remove:.2f} from {friend_name}'s pocket", flush=True)
+
+        # Update sync timestamp
+        c.execute("UPDATE splitwise_config SET last_sync = ? WHERE id = (SELECT MIN(id) FROM splitwise_config)",
+                  (datetime.now().isoformat(),))
+        conn.commit()
+
+        # Send notification if balances changed
+        if friends_changed:
+            c.execute("SELECT id FROM users LIMIT 1")
+            user_row = c.fetchone()
+            if user_row:
+                send_splitwise_notification(user_row[0], friends_changed)
+
+        conn.close()
+        cache.clear()
+
+    except Exception as e:
+        print(f"❌ Error checking Splitwise balances: {e}", flush=True)
+        traceback.print_exc()
+
 def background_transaction_checker():
-    """Background thread that checks for new transactions every 30 seconds"""
+    """Background thread that checks for new transactions and Splitwise balances"""
     while True:
         try:
             check_credit_card_transactions()
+            check_splitwise_balances()
         except Exception as e:
             print(f"Error in background transaction checker: {e}")
         time.sleep(30)  # Check every 30 seconds
