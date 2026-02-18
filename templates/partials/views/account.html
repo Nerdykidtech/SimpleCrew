@@ -343,6 +343,26 @@
                 </div>
             </div>
 
+            <!-- Automation -->
+            <div class="settings-category-label">Automation</div>
+
+            <div class="settings-section collapsed" id="autopilot-rules-section">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #FFF3E0, #FFE0B2); color: #E65100;">&#x2699;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">AutoPilot Rules</div>
+                        <div class="settings-section-subtitle">Round up purchases and save the change</div>
+                    </div>
+                    <div class="settings-section-badge" id="autopilot-rules-badge"></div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div id="autopilot-rules-content">
+                        <div style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 13px;">Loading rules...</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Security Note -->
             <div style="background: var(--bg-elevated); border-radius: 10px; padding: 16px 20px; margin-top: 24px;">
                 <p style="font-size: 12px; color: var(--text-light); line-height: 1.6; margin: 0;">
@@ -480,6 +500,278 @@ if (document.getElementById('fcm-config-status-badge')) {
 }
 if (document.getElementById('bank-details-section')) {
     loadBankAccountDetails();
+}
+if (document.getElementById('autopilot-rules-section')) {
+    loadAutoPilotRules();
+}
+
+// AutoPilot Rules
+const TRIGGER_LABELS = {
+    'DEBIT_CARD_TRANSACTION': 'Card Purchase',
+    'ACCOUNT_BALANCE_UPDATED': 'Balance Change',
+    'DIRECT_DEPOSIT': 'Direct Deposit',
+    'EXTERNAL_TRANSFER': 'External Transfer',
+    'SCHEDULED': 'Scheduled'
+};
+const TRIGGER_ICONS = {
+    'DEBIT_CARD_TRANSACTION': '&#x1F4B3;',
+    'ACCOUNT_BALANCE_UPDATED': '&#x1F4CA;',
+    'DIRECT_DEPOSIT': '&#x1F4B0;',
+    'EXTERNAL_TRANSFER': '&#x1F3E6;',
+    'SCHEDULED': '&#x23F0;'
+};
+const ACTION_LABELS = {
+    'ROUND_UP_TRANSFER': 'Round Up Savings',
+    'TARGET_BALANCE_TRANSFER': 'Balance Protection',
+    'SPLIT_DEPOSIT': 'Split Deposit (%)',
+    'SPLIT_DEPOSIT_BY_AMOUNT': 'Split Deposit ($)',
+    'INTERNAL_TRANSFER': 'Auto Transfer',
+    'SEND_NOTIFICATION': 'Send Notification',
+    'SEND_WEBHOOK': 'Webhook'
+};
+const ACTION_ICONS = {
+    'ROUND_UP_TRANSFER': '&#x1F4B0;',
+    'TARGET_BALANCE_TRANSFER': '&#x1F6E1;',
+    'SPLIT_DEPOSIT': '&#x2702;',
+    'SPLIT_DEPOSIT_BY_AMOUNT': '&#x2702;',
+    'INTERNAL_TRANSFER': '&#x1F504;',
+    'SEND_NOTIFICATION': '&#x1F514;',
+    'SEND_WEBHOOK': '&#x1F517;'
+};
+
+function toggleRuleDetail(cardEl) {
+    const detail = cardEl.querySelector('.autopilot-rule-detail');
+    const chevron = cardEl.querySelector('.autopilot-rule-chevron');
+    if (!detail) return;
+
+    const isOpen = detail.style.display !== 'none';
+    detail.style.display = isOpen ? 'none' : 'block';
+    if (chevron) chevron.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
+
+    // Load cards on first expand
+    if (!isOpen && !cardEl.dataset.cardsLoaded) {
+        const ruleId = cardEl.dataset.ruleId;
+        const cardsContainer = detail.querySelector('.autopilot-cards-container');
+        if (ruleId && cardsContainer) {
+            cardEl.dataset.cardsLoaded = 'true';
+            loadRuleCards(ruleId, cardsContainer);
+        }
+    }
+}
+
+async function loadRuleCards(ruleId, container) {
+    container.innerHTML = '<div style="text-align:center; padding:12px; color:var(--text-muted); font-size:12px;">Loading cards...</div>';
+    try {
+        const res = await fetch(`/api/account/autopilot-rules/${encodeURIComponent(ruleId)}/details`);
+        const data = await res.json();
+
+        if (data.error || !data.cards) {
+            container.innerHTML = '<div style="padding:10px; color:var(--text-muted); font-size:12px;">Could not load cards</div>';
+            return;
+        }
+
+        if (data.cards.length === 0) {
+            container.innerHTML = '<div style="padding:10px; color:var(--text-muted); font-size:12px;">No cards linked to this rule</div>';
+            return;
+        }
+
+        let html = '';
+        data.cards.forEach(card => {
+            const bg = (typeof cardColors !== 'undefined' && cardColors[card.color]) || '#555';
+            const isActive = card.status === 'ACTIVATED' && card.frozenStatus !== 'FROZEN';
+            const statusDot = isActive
+                ? '<span class="rule-card-dot active"></span>'
+                : '<span class="rule-card-dot inactive"></span>';
+            const typeLabel = (card.type === 'VIRTUAL' || card.type === 'SINGLE_USE') ? 'Virtual' : 'Physical';
+            const statusLabel = card.frozenStatus === 'FROZEN' ? 'Frozen' : (card.status === 'ACTIVATED' ? 'Active' : card.status);
+
+            html += `
+            <div class="rule-card-chip">
+                <div class="rule-card-mini" style="background: linear-gradient(135deg, ${bg} 0%, ${bg}cc 100%);">
+                    <div class="rule-card-mini-chip"></div>
+                    <div class="rule-card-mini-num">&bull;&bull;${card.lastFour}</div>
+                </div>
+                <div class="rule-card-chip-info">
+                    <div class="rule-card-chip-name">${card.cardholderName || card.name}</div>
+                    <div class="rule-card-chip-meta">${typeLabel} &bull; &bull;&bull;${card.lastFour}</div>
+                </div>
+                <div class="rule-card-chip-status">${statusDot} ${statusLabel}</div>
+            </div>`;
+        });
+        container.innerHTML = html;
+    } catch (err) {
+        console.error('Error loading rule cards:', err);
+        container.innerHTML = '<div style="padding:10px; color:var(--alert-red); font-size:12px;">Network error</div>';
+    }
+}
+
+function buildActionDetail(action) {
+    const type = action.type;
+    let rows = '';
+
+    if (type === 'ROUND_UP_TRANSFER') {
+        const nearest = action.roundToNearest || 100;
+        const nearestLabel = nearest >= 100 ? '$' + (nearest / 100).toFixed(0) : (nearest) + '\u00A2';
+        rows += detailRow('Round to nearest', nearestLabel);
+        rows += detailRow('Destination', 'Savings Account');
+        if (action.memo) rows += detailRow('Memo', action.memo);
+        // Add example
+        const exampleSpend = '$4.30';
+        const exampleRound = '$' + (nearest / 100).toFixed(2);
+        const exampleSave = '$' + ((nearest - 30) / 100).toFixed(2);
+        rows += `<div class="autopilot-rule-example">
+            <div class="example-label">Example</div>
+            <div class="example-flow">
+                <span class="example-step">You spend <strong>${exampleSpend}</strong></span>
+                <span class="example-arrow">&#x2192;</span>
+                <span class="example-step">Rounded to <strong>${exampleRound}</strong></span>
+                <span class="example-arrow">&#x2192;</span>
+                <span class="example-step save"><strong>${exampleSave}</strong> saved</span>
+            </div>
+        </div>`;
+
+    } else if (type === 'TARGET_BALANCE_TRANSFER') {
+        const target = action.target ? '$' + (action.target / 100).toFixed(2) : '—';
+        const direction = action.direction === 'TO' ? 'Move surplus to pocket' : 'Pull from pocket to cover';
+        rows += detailRow('Target balance', target);
+        rows += detailRow('Direction', direction);
+
+    } else if (type === 'INTERNAL_TRANSFER') {
+        const amount = action.amount ? '$' + (action.amount / 100).toFixed(2) : '—';
+        rows += detailRow('Transfer amount', amount);
+        if (action.memo) rows += detailRow('Memo', action.memo);
+
+    } else if (type === 'SPLIT_DEPOSIT' && action.destinations) {
+        action.destinations.forEach((dest, i) => {
+            rows += detailRow('Split ' + (i + 1), dest.percentage + '%');
+        });
+
+    } else if (type === 'SPLIT_DEPOSIT_BY_AMOUNT' && action.destinations) {
+        action.destinations.forEach((dest, i) => {
+            const amt = dest.amount ? '$' + (dest.amount / 100).toFixed(2) : '—';
+            rows += detailRow('Split ' + (i + 1), amt);
+        });
+
+    } else if (type === 'SEND_NOTIFICATION') {
+        if (action.message) rows += detailRow('Message', action.message);
+        if (action.method) rows += detailRow('Method', action.method);
+
+    } else if (type === 'SEND_WEBHOOK') {
+        if (action.url) rows += detailRow('Webhook URL', action.url);
+    }
+
+    return rows;
+}
+
+function detailRow(label, value) {
+    return `<div class="autopilot-detail-row"><span>${label}</span><span>${value}</span></div>`;
+}
+
+async function loadAutoPilotRules() {
+    const content = document.getElementById('autopilot-rules-content');
+    const badge = document.getElementById('autopilot-rules-badge');
+    try {
+        const res = await fetch('/api/account/autopilot-rules');
+        const data = await res.json();
+
+        if (data.error) {
+            content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--alert-red); font-size:13px;">Failed to load rules</div>';
+            return;
+        }
+
+        // Only show Round Up rules for now
+        const rules = (data.rules || []).filter(r =>
+            (r.actions || []).some(a => a.type === 'ROUND_UP_TRANSFER')
+        );
+
+        // Update badge
+        if (badge) {
+            const activeCount = rules.filter(r => !r.isPaused && !r.isBroken).length;
+            badge.innerHTML = `<span style="background: #d4edda; color: #155724; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px;">${activeCount} Active</span>`;
+        }
+
+        if (rules.length === 0) {
+            content.innerHTML = '<div style="text-align:center; padding:30px 20px; color:var(--text-muted); font-size:14px;">No Round Up rules found.</div>';
+            return;
+        }
+
+        let html = '<div class="autopilot-rules-list">';
+        rules.forEach(rule => {
+            // Status
+            let statusClass = 'active';
+            let statusText = 'Active';
+            let statusIcon = '&#x2713;';
+            if (rule.isBroken) {
+                statusClass = 'broken';
+                statusText = 'Needs Attention';
+                statusIcon = '&#x26A0;';
+            } else if (rule.isPaused) {
+                statusClass = 'paused';
+                statusText = 'Paused';
+                statusIcon = '&#x23F8;';
+            }
+
+            // Trigger + action info
+            const triggers = rule.triggers || [];
+            const actions = rule.actions || [];
+            const mainAction = actions[0] || {};
+            const mainTrigger = triggers[0] || '';
+            const triggerLabel = TRIGGER_LABELS[mainTrigger] || mainTrigger;
+            const triggerIcon = TRIGGER_ICONS[mainTrigger] || '&#x26A1;';
+            const actionLabel = ACTION_LABELS[mainAction.type] || mainAction.type || '';
+            const actionIcon = ACTION_ICONS[mainAction.type] || '&#x2699;';
+
+            // Build detail content for expanded view
+            let detailHtml = '';
+            // Flow visualization
+            detailHtml += `<div class="autopilot-flow">
+                <div class="autopilot-flow-step trigger-step">
+                    <span class="flow-icon">${triggerIcon}</span>
+                    <span class="flow-label">When</span>
+                    <span class="flow-value">${triggerLabel}</span>
+                </div>
+                <div class="autopilot-flow-arrow">&#x25B6;</div>
+                <div class="autopilot-flow-step action-step">
+                    <span class="flow-icon">${actionIcon}</span>
+                    <span class="flow-label">Then</span>
+                    <span class="flow-value">${actionLabel}</span>
+                </div>
+            </div>`;
+
+            // Action-specific details
+            actions.forEach(action => {
+                detailHtml += buildActionDetail(action);
+            });
+
+            html += `
+            <div class="autopilot-rule-card" data-rule-id="${rule.id}" onclick="toggleRuleDetail(this)">
+                <div class="autopilot-rule-header">
+                    <div class="autopilot-rule-priority">${rule.priority || '—'}</div>
+                    <div class="autopilot-rule-info">
+                        <div class="autopilot-rule-name">${rule.name}</div>
+                        <div class="autopilot-rule-desc">${rule.description || ''}</div>
+                        <div class="autopilot-rule-tags">
+                            <span class="autopilot-rule-tag trigger">${triggerIcon} ${triggerLabel}</span>
+                            <span class="autopilot-rule-tag action">${actionIcon} ${actionLabel}</span>
+                        </div>
+                    </div>
+                    <div class="autopilot-rule-status ${statusClass}">${statusIcon} ${statusText}</div>
+                    <div class="autopilot-rule-chevron" style="transform: rotate(-90deg);">&#x25BC;</div>
+                </div>
+                <div class="autopilot-rule-detail" style="display:none;">
+                    ${detailHtml}
+                    <div class="autopilot-detail-section-label">Linked Cards</div>
+                    <div class="autopilot-cards-container"></div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        content.innerHTML = html;
+
+    } catch (err) {
+        console.error('Error loading autopilot rules:', err);
+        content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--alert-red); font-size:13px;">Network error loading rules</div>';
+    }
 }
 </script>
 

@@ -1025,3 +1025,339 @@
         @media (max-width: 600px) {
             .bank-accounts-grid { grid-template-columns: 1fr; }
         }
+
+        /* --- AUTOPILOT RULES --- */
+        .autopilot-rules-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-top: 12px;
+        }
+        .autopilot-rule-card {
+            background: var(--bg-elevated);
+            border-radius: 10px;
+            border: 1px solid var(--border-color-light);
+            transition: border-color 0.15s, box-shadow 0.15s;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        .autopilot-rule-card:hover {
+            border-color: var(--border-color);
+            box-shadow: 0 2px 8px var(--shadow-color);
+        }
+        .autopilot-rule-header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+        }
+        .autopilot-rule-priority {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+            color: #E65100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .autopilot-rule-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .autopilot-rule-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-dark);
+            line-height: 1.3;
+        }
+        .autopilot-rule-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+            line-height: 1.4;
+        }
+        .autopilot-rule-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 6px;
+        }
+        .autopilot-rule-tag {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+            letter-spacing: 0.3px;
+        }
+        .autopilot-rule-tag.trigger {
+            background: rgba(102, 126, 234, 0.1);
+            color: var(--simple-blue);
+        }
+        .autopilot-rule-tag.action {
+            background: rgba(142, 68, 173, 0.1);
+            color: #8E44AD;
+        }
+        .autopilot-rule-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 20px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .autopilot-rule-status.active {
+            background: rgba(46, 125, 50, 0.1);
+            color: var(--success-green);
+        }
+        .autopilot-rule-status.paused {
+            background: rgba(255, 160, 0, 0.1);
+            color: #F57C00;
+        }
+        .autopilot-rule-status.broken {
+            background: rgba(211, 47, 47, 0.1);
+            color: #D32F2F;
+        }
+        .autopilot-rule-chevron {
+            color: var(--text-muted);
+            font-size: 10px;
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+            margin-left: 4px;
+        }
+
+        /* Expanded detail area */
+        .autopilot-rule-detail {
+            padding: 0 16px 16px 16px;
+            border-top: 1px solid var(--border-color-light);
+        }
+
+        /* Flow visualization */
+        .autopilot-flow {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin: 16px 0;
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 14px 12px;
+            border: 1px solid var(--border-color-light);
+        }
+        .autopilot-flow-step {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 4px;
+        }
+        .autopilot-flow-step .flow-icon {
+            font-size: 22px;
+            line-height: 1;
+        }
+        .autopilot-flow-step .flow-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+        .autopilot-flow-step .flow-value {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+        .autopilot-flow-step.trigger-step .flow-label {
+            color: var(--simple-blue);
+        }
+        .autopilot-flow-step.action-step .flow-label {
+            color: #8E44AD;
+        }
+        .autopilot-flow-arrow {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin: 0 6px;
+            opacity: 0.5;
+        }
+
+        /* Detail rows */
+        .autopilot-detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 13px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-bottom: 4px;
+        }
+        .autopilot-detail-row span:first-child {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .autopilot-detail-row span:last-child {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        /* Example box */
+        .autopilot-rule-example {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.06) 0%, rgba(142, 68, 173, 0.06) 100%);
+            border: 1px solid rgba(102, 126, 234, 0.15);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-top: 10px;
+        }
+        .example-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .example-flow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .example-step {
+            font-size: 13px;
+            color: var(--text-dark);
+            background: var(--bg-card);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color-light);
+        }
+        .example-step.save {
+            background: rgba(46, 125, 50, 0.08);
+            border-color: rgba(46, 125, 50, 0.2);
+            color: var(--success-green);
+        }
+        .example-step strong {
+            font-weight: 700;
+        }
+        .example-arrow {
+            color: var(--text-muted);
+            font-size: 14px;
+            opacity: 0.5;
+        }
+
+        /* Linked cards section */
+        .autopilot-detail-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            margin-top: 14px;
+            margin-bottom: 8px;
+        }
+        .autopilot-cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .rule-card-chip {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border-color-light);
+        }
+        .rule-card-mini {
+            width: 48px;
+            height: 30px;
+            border-radius: 4px;
+            position: relative;
+            flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .rule-card-mini-chip {
+            position: absolute;
+            top: 6px;
+            left: 5px;
+            width: 10px;
+            height: 7px;
+            background: linear-gradient(135deg, #FFD700, #FFA000);
+            border-radius: 1px;
+        }
+        .rule-card-mini-num {
+            position: absolute;
+            bottom: 4px;
+            right: 5px;
+            font-size: 8px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.85);
+            letter-spacing: 0.5px;
+        }
+        .rule-card-chip-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .rule-card-chip-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dark);
+            line-height: 1.2;
+        }
+        .rule-card-chip-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+        .rule-card-chip-status {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+        .rule-card-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .rule-card-dot.active {
+            background: var(--success-green);
+            box-shadow: 0 0 4px rgba(46, 125, 50, 0.4);
+        }
+        .rule-card-dot.inactive {
+            background: var(--text-muted);
+        }
+
+        @media (max-width: 600px) {
+            .autopilot-rule-header {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            .autopilot-rule-status {
+                margin-left: auto;
+            }
+            .autopilot-flow {
+                flex-direction: column;
+                gap: 4px;
+            }
+            .autopilot-flow-arrow {
+                transform: rotate(90deg);
+                margin: 2px 0;
+            }
+            .example-flow {
+                flex-direction: column;
+                align-items: stretch;
+                text-align: center;
+            }
+            .example-arrow {
+                transform: rotate(90deg);
+                align-self: center;
+            }
+        }

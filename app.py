@@ -3622,6 +3622,179 @@ def api_test_fcm():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/account/autopilot-rules')
+@login_required
+def api_autopilot_rules():
+    """Fetch AutoPilot rules from Crew API"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        query = """
+        query GetAllRuleValues {
+          currentUser {
+            family {
+              rules {
+                id
+                name
+                isPaused
+                isBroken
+                priority
+                formula {
+                  description
+                  triggers
+                  actions {
+                    type
+                    ... on RoundUpTransferAction {
+                      roundToNearest
+                      accountId
+                      memo
+                    }
+                    ... on TargetBalanceTransferAction {
+                      target
+                      direction
+                      accountId
+                      subaccountId
+                    }
+                    ... on SplitDepositAction {
+                      destinations {
+                        percentage
+                        type
+                        accountId
+                        subaccountId
+                      }
+                    }
+                    ... on SplitDepositByAmountAction {
+                      surplusAccountId
+                      destinations {
+                        amount
+                        type
+                        accountId
+                        subaccountId
+                      }
+                    }
+                    ... on InternalTransferAction {
+                      amount
+                      accountFromId
+                      accountToId
+                      memo
+                    }
+                    ... on SendNotificationAction {
+                      message
+                      method
+                      userIds
+                    }
+                    ... on SendWebhookAction {
+                      url
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "GetAllRuleValues",
+            "query": query
+        })
+        data = response.json()
+
+        if data.get("errors"):
+            return jsonify({"error": data["errors"][0].get("message", "GraphQL error")}), 400
+
+        rules = data.get("data", {}).get("currentUser", {}).get("family", {}).get("rules", [])
+
+        result = []
+        for rule in rules:
+            formula = rule.get("formula") or {}
+            actions = formula.get("actions") or []
+            result.append({
+                "id": rule.get("id"),
+                "name": rule.get("name"),
+                "description": formula.get("description", ""),
+                "isPaused": rule.get("isPaused", False),
+                "isBroken": rule.get("isBroken", False),
+                "priority": rule.get("priority"),
+                "triggers": formula.get("triggers", []),
+                "actions": actions
+            })
+
+        # Sort by priority
+        result.sort(key=lambda r: r.get("priority") or 999)
+        return jsonify({"success": True, "rules": result})
+
+    except Exception as e:
+        print(f"Error fetching autopilot rules: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/autopilot-rules/<rule_id>/details')
+@login_required
+def api_autopilot_rule_details(rule_id):
+    """Fetch rule details including associated cards"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        query = """
+        query GetRoundUpRuleWithCards($id: ID!) {
+          node(id: $id) {
+            ... on Rule {
+              name
+              entities {
+                ... on DebitCard {
+                  id
+                  name
+                  lastFour
+                  cardholderName
+                  status
+                  color
+                  type
+                  frozenStatus
+                }
+              }
+            }
+          }
+        }
+        """
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "GetRoundUpRuleWithCards",
+            "variables": {"id": rule_id},
+            "query": query
+        })
+        data = response.json()
+
+        if data.get("errors"):
+            return jsonify({"error": data["errors"][0].get("message", "GraphQL error")}), 400
+
+        node = data.get("data", {}).get("node") or {}
+        entities = node.get("entities") or []
+
+        cards = []
+        for entity in entities:
+            # Only include debit cards (entities with lastFour)
+            if entity.get("lastFour"):
+                cards.append({
+                    "id": entity.get("id"),
+                    "name": entity.get("name") or entity.get("cardholderName") or "Card",
+                    "lastFour": entity.get("lastFour"),
+                    "cardholderName": entity.get("cardholderName", ""),
+                    "status": entity.get("status"),
+                    "color": entity.get("color"),
+                    "type": entity.get("type"),
+                    "frozenStatus": entity.get("frozenStatus")
+                })
+
+        return jsonify({"success": True, "cards": cards})
+
+    except Exception as e:
+        print(f"Error fetching rule details: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # --- API ROUTES ---
 @app.route('/api/family')
 @login_required
