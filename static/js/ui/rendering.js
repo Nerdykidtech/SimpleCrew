@@ -51,7 +51,7 @@ function renderAccountCards(accounts) {
     container.innerHTML = '';
 
     if (accounts.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No SimpleFin accounts configured yet.</div>';
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No accounts configured yet.</div>';
         return;
     }
 
@@ -84,6 +84,7 @@ function renderAccountCards(accounts) {
                             </div>
                         </div>
 
+                        ${account.provider !== 'manual' ? `
                         <!-- Transfer Mode Toggle -->
                         <div style="background: var(--bg-elevated); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -101,15 +102,22 @@ function renderAccountCards(accounts) {
                                 </div>
                             </div>
                         </div>
+                        ` : ''}
 
                         <div style="display: flex; gap: 8px; margin-top: 16px;">
+                            ${account.provider === 'manual' ? `
+                            <button onclick="topUpManualCC('${account.accountId}', '${account.accountName.replace(/'/g, "\\'")}', ${pocket ? pocket.balance : 0})" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px; background: var(--simple-blue); color: white; border-color: var(--simple-blue);">
+                                ↑ Top Up
+                            </button>
+                            ` : `
                             <button onclick="syncAccountBalance('${account.accountId}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
                                 🔄 Sync
                             </button>
-                            <button onclick="viewAccountTransactions('${account.accountId}', '${account.accountName.replace(/'/g, "\\'")}')" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
+                            <button onclick="viewAccountTransactions('${account.accountId}', '${account.accountName.replace(/'/g, "\\'")}' )" class="btn btn-outline" style="flex: 1; font-size: 13px; padding: 8px 12px;">
                                 📋 Transactions
                             </button>
-                            <button onclick="removeAccount('${account.accountId}')" class="btn btn-outline" style="background: var(--alert-red); color: white; border-color: var(--alert-red); padding: 8px 12px;" title="Remove account">
+                            `}
+                            <button onclick="removeAccount('${account.accountId}', '${account.provider}')" class="btn btn-outline" style="background: var(--alert-red); color: white; border-color: var(--alert-red); padding: 8px 12px;" title="Remove account">
                                 🗑️
                             </button>
                         </div>
@@ -117,8 +125,10 @@ function renderAccountCards(accounts) {
                 `;
                 container.insertAdjacentHTML('beforeend', cardHtml);
 
-                // Fetch and update batch mode for this account
-                loadBatchMode(account.accountId);
+                // Fetch and update batch mode for this account (not applicable for manual accounts)
+                if (account.provider !== 'manual') {
+                    loadBatchMode(account.accountId);
+                }
             });
         })
         .catch(err => console.error('Error loading pocket balances:', err));

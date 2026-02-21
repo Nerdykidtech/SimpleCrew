@@ -4678,8 +4678,8 @@ def api_credit_card_status():
         c.execute("SELECT account_id, account_name, pocket_id, created_at, provider FROM credit_card_config LIMIT 1")
         row = c.fetchone()
 
-        # Get ALL SimpleFin accounts for multi-account support
-        c.execute("SELECT account_id, account_name, pocket_id, created_at, provider FROM credit_card_config WHERE provider='simplefin'")
+        # Get ALL configured accounts for multi-account support (SimpleFin, manual, etc.)
+        c.execute("SELECT account_id, account_name, pocket_id, created_at, provider FROM credit_card_config WHERE account_id != 'temp_simplefin'")
         simplefin_rows = c.fetchall()
 
         # Check if SimpleFin access URL exists and is valid, and get last sync time
@@ -4740,6 +4740,159 @@ def api_credit_card_status():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/manual-cc/create', methods=['POST'])
+@login_required
+def api_manual_cc_create():
+    """Create a manual credit card account with a Crew pocket (no sync provider)"""
+    import uuid
+    data = request.json
+    account_name = (data.get('accountName') or '').strip()
+    initial_balance = float(data.get('initialBalance') or 0)
+
+    if not account_name:
+        return jsonify({"error": "accountName is required"}), 400
+
+    try:
+        account_id = str(uuid.uuid4())
+        pocket_name = f"Credit Card - {account_name}"
+        pocket_result = create_pocket(
+            pocket_name,
+            "0",  # no savings goal
+            str(initial_balance),
+            f"Manual credit card tracking pocket for {account_name}"
+        )
+        if "error" in pocket_result:
+            return jsonify({"error": f"Failed to create pocket: {pocket_result['error']}"}), 500
+
+        pocket_id = pocket_result.get("result", {}).get("id")
+        if not pocket_id:
+            return jsonify({"error": "Pocket created but no ID returned"}), 500
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO credit_card_config
+                (account_id, account_name, pocket_id, provider, current_balance, created_at)
+            VALUES (?, ?, ?, 'manual', ?, CURRENT_TIMESTAMP)
+        """, (account_id, account_name, pocket_id, initial_balance))
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True, "accountId": account_id, "pocketId": pocket_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/manual-cc/top-up', methods=['POST'])
+@login_required
+def api_manual_cc_top_up():
+    """Move the difference from Checking into a manual CC pocket"""
+    data = request.json
+    account_id = data.get('accountId')
+    new_balance = data.get('newBalance')
+
+    if not account_id or new_balance is None:
+        return jsonify({"error": "accountId and newBalance are required"}), 400
+
+    new_balance = float(new_balance)
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT pocket_id, account_name FROM credit_card_config WHERE account_id = ? AND provider = 'manual'", (account_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return jsonify({"error": "Manual account not found"}), 404
+
+        pocket_id, account_name = row
+
+        # Get current pocket balance and checking ID from Crew
+        all_subs = get_subaccounts_list()
+        if "error" in all_subs:
+            return jsonify({"error": "Could not get subaccounts"}), 500
+
+        pocket_sub = next((s for s in all_subs.get("subaccounts", []) if s["id"] == pocket_id), None)
+        current_pocket_balance = pocket_sub["balance"] if pocket_sub else 0
+
+        checking_sub = next((s for s in all_subs.get("subaccounts", []) if s["name"] == "Checking"), None)
+        if not checking_sub:
+            return jsonify({"error": "Could not find Checking account"}), 500
+
+        difference = new_balance - current_pocket_balance
+        amount_moved = 0
+
+        if difference > 0.01:
+            result = move_money(checking_sub["id"], pocket_id, str(difference), f"Top up: {account_name}")
+            if "error" in result:
+                return jsonify({"error": f"Transfer failed: {result['error']}"}), 500
+            amount_moved = difference
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("UPDATE credit_card_config SET current_balance = ? WHERE account_id = ?", (new_balance, account_id))
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({
+            "success": True,
+            "previousBalance": current_pocket_balance,
+            "newBalance": new_balance,
+            "amountMoved": amount_moved,
+            "noTransferNeeded": difference <= 0.01
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/manual-cc/remove', methods=['POST'])
+@login_required
+def api_manual_cc_remove():
+    """Remove a manual CC account: return funds to Checking and delete pocket"""
+    data = request.json
+    account_id = data.get('accountId')
+    if not account_id:
+        return jsonify({"error": "accountId is required"}), 400
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT pocket_id FROM credit_card_config WHERE account_id = ? AND provider = 'manual'", (account_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Manual account not found"}), 404
+        pocket_id = row[0]
+        conn.close()
+
+        if pocket_id:
+            try:
+                all_subs = get_subaccounts_list()
+                pocket_sub = next((s for s in all_subs.get("subaccounts", []) if s["id"] == pocket_id), None)
+                current_balance = pocket_sub["balance"] if pocket_sub else 0
+
+                checking_sub = next((s for s in all_subs.get("subaccounts", []) if s["name"] == "Checking"), None)
+                if checking_sub and current_balance > 0.01:
+                    move_money(pocket_id, checking_sub["id"], str(current_balance), "Returning manual CC pocket funds to Safe-to-Spend")
+
+                delete_subaccount_action(pocket_id)
+            except Exception as e:
+                print(f"Warning: Error deleting pocket: {e}")
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("DELETE FROM credit_card_config WHERE account_id = ?", (account_id,))
+        conn.commit()
+        conn.close()
+
+        cache.clear()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/lunchflow/sync-balance', methods=['POST'])
 @login_required
@@ -5087,6 +5240,9 @@ def check_credit_card_transactions():
 
                 # Update per-account last sync time
                 _last_simplefin_sync[account_id] = time.time()
+
+            elif provider == 'manual':
+                pass  # Manual accounts are not auto-synced
 
         # Update global last sync timestamp if any SimpleFin accounts were synced
         if simplefin_to_sync and simplefin_data is not None:

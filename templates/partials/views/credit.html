@@ -51,6 +51,15 @@
                             </p>
                             <span style="display: inline-block; background: var(--bg-elevated); color: var(--text-light); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">Open Protocol</span>
                         </div>
+
+                        <div onclick="selectProvider('manual')" style="background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.2s; text-align: center;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.boxShadow='0 4px 12px var(--shadow-strong)'" onmouseout="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none'">
+                            <div style="font-size: 48px; margin-bottom: 16px;">✏️</div>
+                            <h4 style="font-size: 18px; font-weight: 600; color: var(--text-dark); margin-bottom: 8px;">Manual</h4>
+                            <p style="font-size: 14px; color: var(--text-light); line-height: 1.5; margin-bottom: 12px;">
+                                No sync — top up your pocket manually when your card balance changes
+                            </p>
+                            <span style="display: inline-block; background: var(--bg-elevated); color: var(--text-light); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">No Account Needed</span>
+                        </div>
                     </div>
                 </div>
 
@@ -174,6 +183,32 @@
                     </div>
                 </div>
 
+                <!-- Manual CC Setup -->
+                <div id="manual-setup" style="display: none;">
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="showProviderSelection()" style="background: none; border: none; color: var(--simple-blue); cursor: pointer; font-size: 14px; padding: 8px 0;">← Back to provider selection</button>
+                    </div>
+                    <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Manual Credit Card Setup</h3>
+                    <p style="color: var(--text-light); font-size: 14px; margin-bottom: 24px; line-height: 1.5;">
+                        Create a pocket to track your card balance manually. Use the "Top Up" button to move money whenever your balance changes.
+                    </p>
+                    <div style="background: var(--bg-elevated); border-radius: 12px; padding: 30px; border: 2px dashed var(--border-color);">
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">Card Name</label>
+                            <input type="text" id="manual-cc-name" placeholder="e.g. Chase Sapphire, Amex Gold" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 15px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;" />
+                        </div>
+                        <div style="margin-bottom: 24px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">
+                                Starting Balance (optional) <span style="font-weight: 400; color: var(--text-light);">— what you currently owe</span>
+                            </label>
+                            <input type="number" id="manual-cc-initial-balance" placeholder="0.00" min="0" step="0.01" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 15px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;" />
+                            <p style="font-size: 13px; color: var(--text-light); margin-top: 8px;">This amount will be moved from your Safe-to-Spend into the pocket immediately.</p>
+                        </div>
+                        <div id="manual-cc-error" style="background: var(--alert-red); color: white; border-radius: 8px; padding: 12px; margin-bottom: 16px; display: none; font-size: 14px;"></div>
+                        <button id="manual-cc-create-btn" onclick="createManualCC()" style="background: var(--simple-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">Create Pocket</button>
+                    </div>
+                </div>
+
                 <!-- Balance Sync Confirmation Modal (shown after account selection) -->
                 <div id="balance-sync-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; flex-direction: column;">
                     <div style="background: var(--bg-card); border-radius: 16px; padding: 40px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px var(--shadow-strong); margin: auto;">
@@ -272,8 +307,8 @@
                 </div>
 
                 <!-- Add Another Account Button -->
-                <button onclick="addAnotherSimpleFinAccount()" style="background: var(--bg-card); border: 2px dashed var(--border-color); border-radius: 12px; padding: 20px; cursor: pointer; width: 100%; text-align: center; color: var(--simple-blue); font-weight: 600; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.background='var(--bg-elevated)'" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background='var(--bg-card)'">
-                    + Add Another SimpleFin Card
+                <button onclick="addAnotherCreditCard()" style="background: var(--bg-card); border: 2px dashed var(--border-color); border-radius: 12px; padding: 20px; cursor: pointer; width: 100%; text-align: center; color: var(--simple-blue); font-weight: 600; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--simple-blue)'; this.style.background='var(--bg-elevated)'" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background='var(--bg-card)'">
+                    + Add Another Card
                 </button>
 
                 <!-- Sync Settings Panel -->

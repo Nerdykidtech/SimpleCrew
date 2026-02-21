@@ -57,6 +57,7 @@ function showProviderSelection() {
     document.getElementById('lunchflow-setup').style.display = 'none';
     document.getElementById('simplefin-setup').style.display = 'none';
     document.getElementById('simplefin-account-selection').style.display = 'none';
+    document.getElementById('manual-setup').style.display = 'none';
 }
 
 /**
@@ -74,10 +75,21 @@ function selectProvider(provider) {
         document.getElementById('lunchflow-setup').style.display = 'block';
         document.getElementById('simplefin-setup').style.display = 'none';
         loadLunchFlowAccounts();
+    } else if (provider === 'manual') {
+        // Show Manual setup
+        document.getElementById('manual-setup').style.display = 'block';
+        document.getElementById('lunchflow-setup').style.display = 'none';
+        document.getElementById('simplefin-setup').style.display = 'none';
+        // Focus the name input for convenience
+        setTimeout(() => {
+            const nameInput = document.getElementById('manual-cc-name');
+            if (nameInput) nameInput.focus();
+        }, 100);
     } else if (provider === 'simplefin') {
         // Show SimpleFin setup
         document.getElementById('simplefin-setup').style.display = 'block';
         document.getElementById('lunchflow-setup').style.display = 'none';
+        document.getElementById('manual-setup').style.display = 'none';
 
         // Fetch SimpleFin access URL and load accounts if available
         fetch('/api/simplefin/get-access-url')
@@ -733,7 +745,17 @@ function disconnectSimpleFin() {
 }
 
 /**
- * Add another SimpleFin account
+ * Add another credit card account — returns to provider selection
+ */
+function addAnotherCreditCard() {
+    document.getElementById('credit-management-screen').style.display = 'none';
+    document.getElementById('credit-setup-screen').style.display = 'block';
+    showProviderSelection();
+}
+
+/**
+ * Add another SimpleFin account (legacy — kept for backward compatibility)
+ * @deprecated Use addAnotherCreditCard instead
  */
 function addAnotherSimpleFinAccount() {
     // Set provider to simplefin
@@ -1037,8 +1059,9 @@ function stopCreditTracking() {
 /**
  * Remove a specific credit account (multi-account mode)
  * @param {string} accountId - The account ID to remove
+ * @param {string} provider - The provider ('simplefin', 'manual', 'lunchflow')
  */
-function removeAccount(accountId) {
+function removeAccount(accountId, provider) {
     const warningMessage = `⚠️ WARNING: Removing this credit card account will:\n\n` +
                           `1. DELETE the credit card pocket permanently\n` +
                           `2. Return all money from the pocket back to Safe-to-Spend\n` +
@@ -1060,7 +1083,11 @@ function removeAccount(accountId) {
         `;
         document.body.appendChild(loadingModal);
 
-        fetch('/api/simplefin/stop-tracking', {
+        const removeEndpoint = provider === 'manual'
+            ? '/api/manual-cc/remove'
+            : '/api/simplefin/stop-tracking';
+
+        fetch(removeEndpoint, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({accountId: accountId})
@@ -1388,4 +1415,199 @@ function syncNow() {
         btn.disabled = false;
         btn.textContent = '🔄 Sync Now';
     });
+}
+
+/**
+ * Create a manual credit card account (no sync provider)
+ */
+async function createManualCC() {
+    const nameInput = document.getElementById('manual-cc-name');
+    const balanceInput = document.getElementById('manual-cc-initial-balance');
+    const errorEl = document.getElementById('manual-cc-error');
+    const btn = document.getElementById('manual-cc-create-btn');
+
+    const accountName = (nameInput.value || '').trim();
+    if (!accountName) {
+        errorEl.textContent = 'Please enter a card name.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    errorEl.style.display = 'none';
+
+    const initialBalance = parseFloat(balanceInput.value || '0') || 0;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+        const response = await fetch('/api/manual-cc/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountName, initialBalance })
+        });
+        const data = await response.json();
+
+        if (data.error) {
+            errorEl.textContent = data.error;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        appAlert(`Pocket created for "${accountName}"! Use the "Top Up" button to keep it in sync with your card balance.`, 'Success');
+
+        if (typeof initBalances === 'function') initBalances(true);
+        if (typeof loadGoals === 'function') loadGoals(true);
+
+        loadCreditSetup();
+    } catch (err) {
+        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+/**
+ * Show the top-up modal for a manual CC account
+ * @param {string} accountId
+ * @param {string} accountName
+ * @param {number} currentPocketBalance - Current pocket balance in dollars
+ */
+function topUpManualCC(accountId, accountName, currentPocketBalance) {
+    const modal = document.createElement('div');
+    modal.id = 'manual-topup-modal';
+    modal.style = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+    modal.innerHTML = `
+        <div style="background: var(--bg-card); border-radius: 16px; padding: 40px; max-width: 480px; width: 90%; box-shadow: 0 20px 60px var(--shadow-strong);">
+            <h3 style="font-size: 22px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark);">Top Up: ${accountName}</h3>
+            <p style="color: var(--text-light); font-size: 14px; margin-bottom: 24px; line-height: 1.5;">
+                Enter your current credit card balance. The difference will be moved from your Safe-to-Spend into this pocket.
+            </p>
+
+            <div style="background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <div style="font-size: 13px; color: var(--text-light); margin-bottom: 4px;">Current Pocket Balance</div>
+                <div style="font-size: 24px; font-weight: 700; color: var(--text-dark);">${fmt(currentPocketBalance)}</div>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); font-size: 14px;">
+                    Current Card Balance (what you owe)
+                </label>
+                <input
+                    type="number"
+                    id="manual-topup-amount"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 18px; font-weight: 600; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;"
+                    oninput="updateTopUpPreview(${currentPocketBalance})"
+                />
+            </div>
+
+            <div id="topup-preview" style="background: var(--bg-elevated); border-radius: 8px; padding: 12px; margin-bottom: 24px; font-size: 14px; color: var(--text-light); min-height: 40px; display: flex; align-items: center; justify-content: center;">
+                Enter a balance above to see the transfer amount.
+            </div>
+
+            <div id="manual-topup-error" style="background: var(--alert-red); color: white; border-radius: 8px; padding: 12px; margin-bottom: 16px; display: none; font-size: 14px;"></div>
+
+            <div style="display: flex; gap: 12px;">
+                <button onclick="document.getElementById('manual-topup-modal').remove()" style="flex: 1; padding: 12px; border: 2px solid var(--border-color); background: var(--bg-card); border-radius: 8px; font-weight: 600; cursor: pointer; color: var(--text-dark); font-size: 14px;">
+                    Cancel
+                </button>
+                <button id="topup-confirm-btn" onclick="confirmTopUp('${accountId}', ${currentPocketBalance})" style="flex: 1; padding: 12px; border: none; background: var(--simple-blue); color: white; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;">
+                    Top Up
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    setTimeout(() => {
+        const input = document.getElementById('manual-topup-amount');
+        if (input) input.focus();
+    }, 100);
+}
+
+/**
+ * Update the preview text in the top-up modal
+ * @param {number} currentPocketBalance
+ */
+function updateTopUpPreview(currentPocketBalance) {
+    const input = document.getElementById('manual-topup-amount');
+    const preview = document.getElementById('topup-preview');
+    if (!input || !preview) return;
+
+    const val = parseFloat(input.value);
+    if (isNaN(val) || val < 0) {
+        preview.textContent = 'Enter a balance above to see the transfer amount.';
+        preview.style.color = 'var(--text-light)';
+        return;
+    }
+
+    const difference = val - currentPocketBalance;
+    if (difference <= 0.01) {
+        preview.innerHTML = '<span style="font-weight: 600;">No transfer needed</span> — pocket already covers this balance.';
+        preview.style.color = 'var(--text-light)';
+    } else {
+        preview.innerHTML = `Will move <strong style="color: var(--simple-blue);">${fmt(difference)}</strong> from Safe-to-Spend into this pocket.`;
+        preview.style.color = 'var(--text-dark)';
+    }
+}
+
+/**
+ * Execute the top-up transfer
+ * @param {string} accountId
+ * @param {number} currentPocketBalance
+ */
+async function confirmTopUp(accountId, currentPocketBalance) {
+    const input = document.getElementById('manual-topup-amount');
+    const errorEl = document.getElementById('manual-topup-error');
+    const btn = document.getElementById('topup-confirm-btn');
+
+    const newBalance = parseFloat(input.value);
+    if (isNaN(newBalance) || newBalance < 0) {
+        errorEl.textContent = 'Please enter a valid balance.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    errorEl.style.display = 'none';
+
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+
+    try {
+        const response = await fetch('/api/manual-cc/top-up', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId, newBalance })
+        });
+        const data = await response.json();
+
+        if (data.error) {
+            errorEl.textContent = data.error;
+            errorEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Top Up';
+            return;
+        }
+
+        const modal = document.getElementById('manual-topup-modal');
+        if (modal) modal.remove();
+
+        if (data.noTransferNeeded) {
+            appAlert('No transfer needed — your pocket already covers the card balance.', 'Info');
+        } else {
+            appAlert(`Top up complete! Moved ${fmt(data.amountMoved)} to pocket.`, 'Success');
+        }
+
+        if (typeof initBalances === 'function') initBalances(true);
+        if (typeof loadGoals === 'function') loadGoals(true);
+        loadCreditSetup();
+    } catch (err) {
+        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Top Up';
+    }
 }
