@@ -508,14 +508,18 @@ if (document.getElementById('autopilot-rules-section')) {
 // AutoPilot Rules
 const TRIGGER_LABELS = {
     'DEBIT_CARD_TRANSACTION': 'Card Purchase',
+    'CASH_TRANSACTION_OCCURRED': 'Any Transaction',
     'ACCOUNT_BALANCE_UPDATED': 'Balance Change',
+    'ACCOUNT_DEPOSIT_RECEIVED': 'Deposit Received',
     'DIRECT_DEPOSIT': 'Direct Deposit',
     'EXTERNAL_TRANSFER': 'External Transfer',
     'SCHEDULED': 'Scheduled'
 };
 const TRIGGER_ICONS = {
     'DEBIT_CARD_TRANSACTION': '&#x1F4B3;',
+    'CASH_TRANSACTION_OCCURRED': '&#x26A1;',
     'ACCOUNT_BALANCE_UPDATED': '&#x1F4CA;',
+    'ACCOUNT_DEPOSIT_RECEIVED': '&#x1F4B0;',
     'DIRECT_DEPOSIT': '&#x1F4B0;',
     'EXTERNAL_TRANSFER': '&#x1F3E6;',
     'SCHEDULED': '&#x23F0;'
@@ -548,15 +552,6 @@ function toggleRuleDetail(cardEl) {
     detail.style.display = isOpen ? 'none' : 'block';
     if (chevron) chevron.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
 
-    // Load cards on first expand
-    if (!isOpen && !cardEl.dataset.cardsLoaded) {
-        const ruleId = cardEl.dataset.ruleId;
-        const cardsContainer = detail.querySelector('.autopilot-cards-container');
-        if (ruleId && cardsContainer) {
-            cardEl.dataset.cardsLoaded = 'true';
-            loadRuleCards(ruleId, cardsContainer);
-        }
-    }
 }
 
 async function loadRuleCards(ruleId, container) {
@@ -691,7 +686,12 @@ async function loadAutoPilotRules() {
         }
 
         if (rules.length === 0) {
-            content.innerHTML = '<div style="text-align:center; padding:30px 20px; color:var(--text-muted); font-size:14px;">No Round Up rules found.</div>';
+            content.innerHTML = `
+                <div style="text-align:center; padding:30px 20px; color:var(--text-muted); font-size:14px;">No AutoPilot rules found.</div>
+                <div class="autopilot-add-rule" onclick="openCreateRuleForm()">
+                    <span style="font-size:18px;">+</span> Add AutoPilot Rule
+                </div>
+                <div id="autopilot-create-form-container" style="display:none;"></div>`;
             return;
         }
 
@@ -743,8 +743,45 @@ async function loadAutoPilotRules() {
                 detailHtml += buildActionDetail(action);
             });
 
+            // Build linked cards HTML from inline entity data
+            const entityCards = rule.entityCards || [];
+            let cardsHtml = '';
+            if (entityCards.length > 0) {
+                entityCards.forEach(card => {
+                    const bg = (typeof cardColors !== 'undefined' && cardColors[card.color]) || '#555';
+                    const typeLabel = (card.type === 'VIRTUAL' || card.type === 'SINGLE_USE') ? 'Virtual' : 'Physical';
+                    const statusLabel = card.status === 'ACTIVATED' ? 'Active' : (card.status || '');
+                    cardsHtml += `
+                    <div class="rule-card-chip">
+                        <div class="rule-card-mini" style="background: linear-gradient(135deg, ${bg} 0%, ${bg}cc 100%);">
+                            <div class="rule-card-mini-chip"></div>
+                            <div class="rule-card-mini-num">&bull;&bull;${card.lastFour}</div>
+                        </div>
+                        <div class="rule-card-chip-info">
+                            <div class="rule-card-chip-name">${card.name}</div>
+                            <div class="rule-card-chip-meta">${typeLabel} &bull; &bull;&bull;${card.lastFour}</div>
+                        </div>
+                        <div class="rule-card-chip-status"><span class="rule-card-dot active"></span> ${statusLabel}</div>
+                    </div>`;
+                });
+            } else {
+                cardsHtml = '<div style="padding:10px; color:var(--text-muted); font-size:12px;">All cards (no specific cards linked)</div>';
+            }
+
+            // Store rule data for edit form pre-fill
+            const ruleDataAttr = encodeURIComponent(JSON.stringify({
+                id: rule.id,
+                name: rule.name || 'Round Up',
+                roundToNearest: mainAction.roundToNearest || 100,
+                accountId: mainAction.accountId || '',
+                subaccountId: mainAction.subaccountId || '',
+                isPaused: rule.isPaused,
+                linkedCardIds: rule.linkedCardIds || [],
+                trigger: mainTrigger
+            }));
+
             html += `
-            <div class="autopilot-rule-card" data-rule-id="${rule.id}" onclick="toggleRuleDetail(this)">
+            <div class="autopilot-rule-card" data-rule-id="${rule.id}" data-rule-config="${ruleDataAttr}" onclick="toggleRuleDetail(this)">
                 <div class="autopilot-rule-header">
                     <div class="autopilot-rule-priority">${rule.priority || '—'}</div>
                     <div class="autopilot-rule-info">
@@ -759,18 +796,370 @@ async function loadAutoPilotRules() {
                     <div class="autopilot-rule-chevron" style="transform: rotate(-90deg);">&#x25BC;</div>
                 </div>
                 <div class="autopilot-rule-detail" style="display:none;">
-                    ${detailHtml}
-                    <div class="autopilot-detail-section-label">Linked Cards</div>
-                    <div class="autopilot-cards-container"></div>
+                    <div class="autopilot-rule-detail-content">
+                        ${detailHtml}
+                        <div class="autopilot-detail-section-label">Linked Cards</div>
+                        <div class="autopilot-cards-container">${cardsHtml}</div>
+                        <div class="autopilot-detail-actions">
+                            <button class="autopilot-edit-btn" onclick="event.stopPropagation(); openRuleEditForm(this.closest('.autopilot-rule-card'));">Edit Rule</button>
+                            <button class="autopilot-delete-btn" onclick="event.stopPropagation(); deleteRule('${rule.id}');">Delete Rule</button>
+                        </div>
+                    </div>
+                    <div class="autopilot-rule-edit-container" style="display:none;"></div>
                 </div>
             </div>`;
         });
+
+        // Add "Create Rule" button
+        html += `<div class="autopilot-add-rule" onclick="openCreateRuleForm()">
+            <span style="font-size:18px;">+</span> Add AutoPilot Rule
+        </div>`;
         html += '</div>';
+
+        // Create form container (hidden by default)
+        html += '<div id="autopilot-create-form-container" style="display:none;"></div>';
         content.innerHTML = html;
 
     } catch (err) {
         console.error('Error loading autopilot rules:', err);
         content.innerHTML = '<div style="text-align:center; padding:20px; color:var(--alert-red); font-size:13px;">Network error loading rules</div>';
+    }
+}
+
+// --- Edit / Create Round Up Rule ---
+
+let _subaccountsCache = null;
+
+async function fetchSubaccounts() {
+    if (_subaccountsCache) return _subaccountsCache;
+    try {
+        const res = await fetch('/api/family-subaccounts');
+        const data = await res.json();
+        if (!data.error) _subaccountsCache = data;
+        return data;
+    } catch { return null; }
+}
+
+function buildRoundUpForm(opts = {}) {
+    const { ruleId, roundToNearest = 100, subaccountId = '', accountId = '', isPaused = false, isCreate = false, linkedCardIds = [], ruleName = 'Round Up' } = opts;
+    const amounts = [100, 200, 500, 1000];
+
+    let amountBtns = amounts.map(v => {
+        const label = '$' + (v / 100).toFixed(0);
+        const sel = v === roundToNearest ? 'selected' : '';
+        return `<button type="button" class="roundup-amt-btn ${sel}" data-value="${v}" onclick="selectRoundUpAmount(this)">${label}</button>`;
+    }).join('');
+
+    const pauseToggle = !isCreate ? `
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Status</label>
+            <div class="autopilot-toggle-row">
+                <span class="autopilot-toggle-label" id="rule-toggle-label">${isPaused ? 'Paused' : 'Active'}</span>
+                <label class="autopilot-switch">
+                    <input type="checkbox" id="rule-enabled-toggle" ${!isPaused ? 'checked' : ''} onchange="document.getElementById('rule-toggle-label').textContent = this.checked ? 'Active' : 'Paused'">
+                    <span class="autopilot-switch-slider"></span>
+                </label>
+            </div>
+        </div>` : '';
+
+    const ruleTypeDropdown = isCreate ? `
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Rule Type</label>
+            <select id="rule-type-select" class="autopilot-form-select" disabled>
+                <option value="ROUND_UP" selected>Round Up</option>
+            </select>
+        </div>` : '';
+
+    return `
+    <div class="autopilot-edit-form" onclick="event.stopPropagation();">
+        <div class="autopilot-form-title">${isCreate ? 'Create AutoPilot Rule' : 'Edit Rule'}</div>
+
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Rule Name</label>
+            <input type="text" id="rule-name-input" class="autopilot-form-input" value="${ruleName.replace(/"/g, '&quot;')}" placeholder="e.g. Round Up">
+        </div>
+
+        ${ruleTypeDropdown}
+
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Round to nearest</label>
+            <div class="roundup-amount-options">${amountBtns}</div>
+            <input type="hidden" id="rule-round-amount" value="${roundToNearest}">
+            <input type="hidden" id="rule-account-id" value="${accountId}">
+        </div>
+
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Save change to</label>
+            <select id="rule-destination-pocket" class="autopilot-form-select" onchange="updateAccountIdFromPocket()">
+                <option value="">Loading pockets...</option>
+            </select>
+        </div>
+
+        <div class="autopilot-form-group">
+            <label class="autopilot-form-label">Apply to cards</label>
+            <div class="autopilot-form-subtext">Select which cards trigger this round-up rule. If none selected, applies to all cards.</div>
+            <div id="rule-card-checkboxes" class="rule-card-checkboxes">
+                <div class="autopilot-loading-cards">Loading cards...</div>
+            </div>
+            <input type="hidden" id="rule-linked-cards" value='${JSON.stringify(linkedCardIds)}'>
+        </div>
+
+        ${pauseToggle}
+
+        <div id="rule-form-error" style="display:none; color:var(--alert-red); font-size:13px; padding:8px 12px; background:rgba(211,47,47,0.08); border-radius:8px; margin-bottom:12px;"></div>
+
+        <div class="autopilot-form-actions">
+            <button class="autopilot-form-save" id="rule-save-btn" onclick="${isCreate ? 'submitCreateRule()' : `submitEditRule('${ruleId}')`}">
+                ${isCreate ? 'Create Rule' : 'Save Changes'}
+            </button>
+            <button class="autopilot-form-cancel" onclick="${isCreate ? 'cancelCreateRule()' : `cancelEditRule(this.closest('.autopilot-rule-card'))`}">Cancel</button>
+        </div>
+    </div>`;
+}
+
+function selectRoundUpAmount(btn) {
+    btn.closest('.roundup-amount-options').querySelectorAll('.roundup-amt-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.getElementById('rule-round-amount').value = btn.dataset.value;
+}
+
+async function populatePocketDropdown(selectedSubaccountId, selectedAccountId) {
+    const select = document.getElementById('rule-destination-pocket');
+    const data = await fetchSubaccounts();
+    if (!data || !data.groups) {
+        select.innerHTML = '<option value="">Could not load pockets</option>';
+        return;
+    }
+
+    let html = '';
+    data.groups.forEach(group => {
+        html += `<optgroup label="${group.owner || 'Account'}">`;
+        group.pockets.forEach(pocket => {
+            const displayName = (pocket.name === 'Checking' && group.ownerType === 'main') ? 'Safe-to-Spend' : pocket.name;
+            const isSelected = pocket.id === selectedSubaccountId ? 'selected' : '';
+            html += `<option value="${pocket.id}" data-account-id="${group.accountId || ''}" ${isSelected}>${displayName}</option>`;
+        });
+        html += '</optgroup>';
+    });
+    select.innerHTML = html;
+
+    // If no subaccountId was selected, default to first option
+    if (!selectedSubaccountId && select.options.length > 0) {
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value) { select.selectedIndex = i; break; }
+        }
+    }
+
+    // Update hidden accountId from the selected pocket
+    updateAccountIdFromPocket();
+}
+
+async function populateCardCheckboxes(selectedCardIds = []) {
+    const container = document.getElementById('rule-card-checkboxes');
+    try {
+        const res = await fetch('/api/cards');
+        const data = await res.json();
+        if (data.error || !data.cards) {
+            container.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Could not load cards</div>';
+            return;
+        }
+
+        const physicalCards = data.cards || [];
+        if (physicalCards.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">No cards found</div>';
+            return;
+        }
+
+        let html = '';
+        physicalCards.forEach(card => {
+            const isChecked = selectedCardIds.includes(card.id) ? 'checked' : '';
+            html += `
+            <label class="rule-card-checkbox-item" onclick="event.stopPropagation();">
+                <input type="checkbox" class="rule-card-cb" value="${card.id}" ${isChecked} onchange="updateLinkedCardsInput()">
+                <span class="rule-card-cb-dot" style="background:${card.color ? ({'GREEN':'#2E7D32','BLUE':'#1565C0','RED':'#C62828','PURPLE':'#6A1B9A','BLACK':'#333','GRAY':'#666'}[card.color] || '#333') : '#333'};"></span>
+                <span class="rule-card-cb-info">
+                    <span class="rule-card-cb-name">${card.holder || 'Card'}</span>
+                    <span class="rule-card-cb-meta">..${card.last4}</span>
+                </span>
+            </label>`;
+        });
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Could not load cards</div>';
+    }
+}
+
+function updateLinkedCardsInput() {
+    const checkboxes = document.querySelectorAll('.rule-card-cb:checked');
+    const ids = Array.from(checkboxes).map(cb => cb.value);
+    document.getElementById('rule-linked-cards').value = JSON.stringify(ids);
+}
+
+function updateAccountIdFromPocket() {
+    const select = document.getElementById('rule-destination-pocket');
+    const hiddenAccountId = document.getElementById('rule-account-id');
+    if (select && hiddenAccountId && select.selectedOptions.length > 0) {
+        const acctId = select.selectedOptions[0].dataset.accountId;
+        if (acctId) hiddenAccountId.value = acctId;
+    }
+}
+
+async function openRuleEditForm(cardEl) {
+    const config = JSON.parse(decodeURIComponent(cardEl.dataset.ruleConfig));
+    const detailContent = cardEl.querySelector('.autopilot-rule-detail-content');
+    const editContainer = cardEl.querySelector('.autopilot-rule-edit-container');
+
+    detailContent.style.display = 'none';
+    editContainer.style.display = 'block';
+    editContainer.innerHTML = buildRoundUpForm({
+        ruleId: config.id,
+        ruleName: config.name || 'Round Up',
+        roundToNearest: config.roundToNearest,
+        subaccountId: config.subaccountId,
+        accountId: config.accountId,
+        isPaused: config.isPaused,
+        linkedCardIds: config.linkedCardIds || []
+    });
+
+    await Promise.all([
+        populatePocketDropdown(config.subaccountId, config.accountId),
+        populateCardCheckboxes(config.linkedCardIds || [])
+    ]);
+}
+
+function cancelEditRule(cardEl) {
+    const detailContent = cardEl.querySelector('.autopilot-rule-detail-content');
+    const editContainer = cardEl.querySelector('.autopilot-rule-edit-container');
+    editContainer.style.display = 'none';
+    detailContent.style.display = 'block';
+}
+
+async function deleteRule(ruleId) {
+    if (!confirm('Are you sure you want to delete this rule? This cannot be undone.')) return;
+
+    try {
+        const res = await fetch('/api/account/autopilot-rules/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ruleId })
+        });
+        const result = await res.json();
+
+        if (result.error) {
+            alert('Error deleting rule: ' + result.error);
+            return;
+        }
+
+        loadAutoPilotRules();
+    } catch (err) {
+        alert('Network error deleting rule');
+    }
+}
+
+async function submitEditRule(ruleId) {
+    const btn = document.getElementById('rule-save-btn');
+    const errorEl = document.getElementById('rule-form-error');
+    const ruleName = document.getElementById('rule-name-input').value.trim() || 'Round Up';
+    const roundToNearest = parseInt(document.getElementById('rule-round-amount').value);
+    const subaccountId = document.getElementById('rule-destination-pocket').value;
+    const accountId = document.getElementById('rule-account-id').value;
+    const enabledEl = document.getElementById('rule-enabled-toggle');
+    const enabled = enabledEl ? enabledEl.checked : true;
+
+    // Get selected card IDs
+    const cardIds = JSON.parse(document.getElementById('rule-linked-cards').value || '[]');
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    errorEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/account/autopilot-rules/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ruleId, name: ruleName, accountId, subaccountId, roundToNearest, enabled, cardIds })
+        });
+        const result = await res.json();
+
+        if (result.error) {
+            errorEl.textContent = result.error;
+            errorEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+            return;
+        }
+
+        // Refresh the rules list
+        loadAutoPilotRules();
+    } catch (err) {
+        errorEl.textContent = 'Network error';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+    }
+}
+
+async function openCreateRuleForm() {
+    const container = document.getElementById('autopilot-create-form-container');
+    container.style.display = 'block';
+    container.innerHTML = buildRoundUpForm({ isCreate: true });
+    await Promise.all([
+        populatePocketDropdown('', ''),
+        populateCardCheckboxes([])
+    ]);
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cancelCreateRule() {
+    const container = document.getElementById('autopilot-create-form-container');
+    container.style.display = 'none';
+    container.innerHTML = '';
+}
+
+async function submitCreateRule() {
+    const btn = document.getElementById('rule-save-btn');
+    const errorEl = document.getElementById('rule-form-error');
+    const ruleName = document.getElementById('rule-name-input').value.trim() || 'Round Up';
+    const roundToNearest = parseInt(document.getElementById('rule-round-amount').value);
+    const subaccountId = document.getElementById('rule-destination-pocket').value;
+    const accountId = document.getElementById('rule-account-id').value;
+
+    if (!accountId) {
+        errorEl.textContent = 'Please select a destination pocket';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    // Get selected card IDs
+    const cardIds = JSON.parse(document.getElementById('rule-linked-cards').value || '[]');
+
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+    errorEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/account/autopilot-rules/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: ruleName, accountId, subaccountId, roundToNearest, cardIds })
+        });
+        const result = await res.json();
+
+        if (result.error) {
+            errorEl.textContent = result.error;
+            errorEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Create Rule';
+            return;
+        }
+
+        cancelCreateRule();
+        loadAutoPilotRules();
+    } catch (err) {
+        errorEl.textContent = 'Network error';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Create Rule';
     }
 }
 </script>

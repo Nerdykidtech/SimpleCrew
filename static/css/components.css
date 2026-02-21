@@ -1361,3 +1361,303 @@
                 align-self: center;
             }
         }
+
+        /* --- AUTOPILOT EDIT FORM --- */
+        .autopilot-detail-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .autopilot-edit-btn {
+            flex: 1;
+            padding: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--simple-blue);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .autopilot-edit-btn:hover {
+            background: rgba(0, 147, 233, 0.06);
+            border-color: var(--simple-blue);
+        }
+        .autopilot-delete-btn {
+            flex: 1;
+            padding: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--alert-red);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .autopilot-delete-btn:hover {
+            background: rgba(211, 47, 47, 0.06);
+            border-color: var(--alert-red);
+        }
+        .autopilot-edit-form {
+            padding: 4px 0;
+        }
+        .autopilot-form-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 16px;
+        }
+        .autopilot-form-group {
+            margin-bottom: 16px;
+        }
+        .autopilot-form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .autopilot-form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--bg-input);
+            color: var(--text-dark);
+            box-sizing: border-box;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23999%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px top 50%;
+            background-size: 10px auto;
+        }
+        .autopilot-form-select:focus {
+            border-color: var(--simple-blue);
+            outline: none;
+        }
+        .autopilot-form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--bg-input);
+            color: var(--text-dark);
+            box-sizing: border-box;
+        }
+        .autopilot-form-input:focus {
+            border-color: var(--simple-blue);
+            outline: none;
+        }
+
+        /* Segmented amount buttons */
+        .roundup-amount-options {
+            display: flex;
+            gap: 8px;
+        }
+        .roundup-amt-btn {
+            flex: 1;
+            padding: 10px 0;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-card);
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-dark);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .roundup-amt-btn:hover {
+            border-color: var(--simple-blue);
+            color: var(--simple-blue);
+        }
+        .roundup-amt-btn.selected {
+            border-color: var(--simple-blue);
+            background: rgba(0, 147, 233, 0.08);
+            color: var(--simple-blue);
+        }
+
+        /* Toggle switch */
+        .autopilot-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: var(--bg-elevated);
+            border-radius: 8px;
+        }
+        .autopilot-toggle-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+        .autopilot-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            display: inline-block;
+        }
+        .autopilot-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .autopilot-switch-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--border-color);
+            border-radius: 24px;
+            transition: 0.2s;
+        }
+        .autopilot-switch-slider::before {
+            content: '';
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .autopilot-switch input:checked + .autopilot-switch-slider {
+            background: var(--success-green);
+        }
+        .autopilot-switch input:checked + .autopilot-switch-slider::before {
+            transform: translateX(20px);
+        }
+
+        /* Form action buttons */
+        .autopilot-form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 4px;
+        }
+        .autopilot-form-save {
+            flex: 1;
+            padding: 10px;
+            background: var(--simple-blue);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .autopilot-form-save:hover {
+            background: #007BB5;
+        }
+        .autopilot-form-save:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .autopilot-form-cancel {
+            padding: 10px 20px;
+            background: var(--bg-card);
+            color: var(--text-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .autopilot-form-cancel:hover {
+            border-color: var(--text-muted);
+        }
+
+        /* Add rule button */
+        .autopilot-add-rule {
+            border: 2px dashed var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .autopilot-add-rule:hover {
+            border-color: var(--simple-blue);
+            color: var(--simple-blue);
+            background: rgba(0, 147, 233, 0.03);
+        }
+
+        /* Card Checkbox Selection */
+        .rule-card-checkboxes {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .rule-card-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            background: var(--bg-input);
+        }
+        .rule-card-checkbox-item:hover {
+            border-color: var(--simple-blue);
+            background: rgba(0, 147, 233, 0.03);
+        }
+        .rule-card-checkbox-item:has(input:checked) {
+            border-color: var(--simple-blue);
+            background: rgba(0, 147, 233, 0.06);
+        }
+        .rule-card-cb {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--simple-blue);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .rule-card-cb-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .rule-card-cb-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .rule-card-cb-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+        .rule-card-cb-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .autopilot-form-subtext {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+        .autopilot-loading-cards {
+            font-size: 13px;
+            color: var(--text-muted);
+            padding: 8px 0;
+        }

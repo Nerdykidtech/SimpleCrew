@@ -1481,6 +1481,7 @@ def get_family_subaccounts():
                 id
                 displayedFirstName
                 accounts {
+                    id
                     subaccounts {
                         id
                         displayName
@@ -1492,6 +1493,7 @@ def get_family_subaccounts():
                         id
                         displayedFirstName
                         spendAccount {
+                            id
                             subaccounts {
                                 id
                                 displayName
@@ -1515,7 +1517,10 @@ def get_family_subaccounts():
 
         # Main account pockets
         main_pockets = []
+        main_account_id = None
         for account in current_user.get("accounts", []):
+            if not main_account_id:
+                main_account_id = account.get("id")
             for sub in account.get("subaccounts", []):
                 balance = sub.get("clearedBalance", 0) / 100.0
                 main_pockets.append({
@@ -1528,6 +1533,7 @@ def get_family_subaccounts():
             result["groups"].append({
                 "owner": "Main Account",
                 "ownerType": "main",
+                "accountId": main_account_id,
                 "pockets": main_pockets
             })
 
@@ -1535,7 +1541,8 @@ def get_family_subaccounts():
         for child in family.get("children", []):
             child_name = child.get("displayedFirstName", "Child")
             child_pockets = []
-            spend_account = child.get("spendAccount", {})
+            spend_account = child.get("spendAccount") or {}
+            child_account_id = spend_account.get("id")
             for sub in spend_account.get("subaccounts", []):
                 balance = sub.get("clearedBalance", 0) / 100.0
                 child_pockets.append({
@@ -1548,6 +1555,7 @@ def get_family_subaccounts():
                 result["groups"].append({
                     "owner": child_name,
                     "ownerType": "child",
+                    "accountId": child_account_id,
                     "pockets": child_pockets
                 })
 
@@ -3718,14 +3726,53 @@ def api_autopilot_rules():
                 isPaused
                 isBroken
                 priority
+                entities {
+                  ... on DebitCard {
+                    id
+                    name
+                    lastFour
+                    cardholderName
+                    status
+                    color
+                    type
+                  }
+                }
                 formula {
                   description
                   triggers
+                  conditions {
+                    ... on IdMatchCondition {
+                      entityId
+                      entitySchema
+                      type
+                    }
+                    ... on OrCondition {
+                      type
+                      conditions {
+                        ... on IdMatchCondition {
+                          entityId
+                          entitySchema
+                          type
+                        }
+                      }
+                    }
+                    ... on AndCondition {
+                      type
+                      conditions {
+                        ... on IdMatchCondition {
+                          entityId
+                          entitySchema
+                          type
+                        }
+                      }
+                    }
+                  }
                   actions {
                     type
                     ... on RoundUpTransferAction {
                       roundToNearest
                       accountId
+                      subaccountId
                       memo
                     }
                     ... on TargetBalanceTransferAction {
@@ -3788,6 +3835,33 @@ def api_autopilot_rules():
         for rule in rules:
             formula = rule.get("formula") or {}
             actions = formula.get("actions") or []
+
+            # Extract linked card IDs from conditions
+            linked_card_ids = []
+            conditions = formula.get("conditions")
+            if conditions:
+                cond_type = conditions.get("type")
+                if cond_type == "ID_MATCH" and conditions.get("entitySchema") == "DEBIT_CARDS":
+                    linked_card_ids.append(conditions.get("entityId"))
+                elif cond_type in ("OR", "AND"):
+                    for sub in (conditions.get("conditions") or []):
+                        if sub.get("type") == "ID_MATCH" and sub.get("entitySchema") == "DEBIT_CARDS":
+                            linked_card_ids.append(sub.get("entityId"))
+
+            # Extract entity cards
+            entities = rule.get("entities") or []
+            entity_cards = []
+            for entity in entities:
+                if entity.get("lastFour"):
+                    entity_cards.append({
+                        "id": entity.get("id"),
+                        "name": entity.get("name") or entity.get("cardholderName") or "Card",
+                        "lastFour": entity.get("lastFour"),
+                        "color": entity.get("color"),
+                        "type": entity.get("type"),
+                        "status": entity.get("status")
+                    })
+
             result.append({
                 "id": rule.get("id"),
                 "name": rule.get("name"),
@@ -3796,7 +3870,9 @@ def api_autopilot_rules():
                 "isBroken": rule.get("isBroken", False),
                 "priority": rule.get("priority"),
                 "triggers": formula.get("triggers", []),
-                "actions": actions
+                "actions": actions,
+                "linkedCardIds": linked_card_ids,
+                "entityCards": entity_cards
             })
 
         # Sort by priority
@@ -3870,6 +3946,244 @@ def api_autopilot_rule_details(rule_id):
 
     except Exception as e:
         print(f"Error fetching rule details: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/autopilot-rules/update', methods=['POST'])
+@login_required
+def api_autopilot_rule_update():
+    """Update an existing round-up rule"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        data = request.json
+        rule_id = data.get("ruleId")
+        rule_name = data.get("name", "Round Up")
+        account_id = data.get("accountId")
+        subaccount_id = data.get("subaccountId")
+        round_to_nearest = data.get("roundToNearest", 100)
+        enabled = data.get("enabled", True)
+        card_ids = data.get("cardIds", [])
+
+        if not rule_id or not account_id:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Build conditions for linked cards
+        conditions = None
+        if card_ids:
+            id_matches = [{"idMatch": {"entityId": cid, "entitySchema": "DEBIT_CARDS"}} for cid in card_ids]
+            if len(id_matches) == 1:
+                conditions = id_matches[0]
+            else:
+                conditions = {"or": {"conditions": id_matches}}
+
+        # Use DEBIT_CARD_TRANSACTION trigger when cards are linked, otherwise CASH_TRANSACTION_OCCURRED
+        trigger = "DEBIT_CARD_TRANSACTION" if card_ids else "CASH_TRANSACTION_OCCURRED"
+
+        # Build the formula input
+        formula = {
+            "name": rule_name,
+            "description": "Round up transactions to the nearest dollar" if not card_ids else "Save extra change from card purchases.",
+            "triggers": [trigger],
+            "actions": [{
+                "roundUpTransfer": {
+                    "accountId": account_id,
+                    "roundToNearest": round_to_nearest,
+                    "accountType": "ACCOUNT"
+                }
+            }]
+        }
+        if subaccount_id:
+            formula["actions"][0]["roundUpTransfer"]["subaccountId"] = subaccount_id
+        if conditions:
+            formula["conditions"] = conditions
+
+        rule_input = {
+            "ruleId": rule_id,
+            "name": rule_name,
+            "enabled": enabled,
+            "formula": formula
+        }
+
+        mutation = """
+        mutation EditRoundUpRule($input: UpdateRuleInput!) {
+          updateRule(input: $input) {
+            result {
+              id
+              name
+              isPaused
+              entities {
+                ... on DebitCard {
+                  id
+                  lastFour
+                }
+              }
+              formula {
+                actions {
+                  ... on RoundUpTransferAction {
+                    roundToNearest
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {"input": rule_input}
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "EditRoundUpRule",
+            "variables": variables,
+            "query": mutation
+        })
+        result = response.json()
+
+        if result.get("errors"):
+            return jsonify({"error": result["errors"][0].get("message", "GraphQL error")}), 400
+
+        updated = result.get("data", {}).get("updateRule", {}).get("result")
+        return jsonify({"success": True, "rule": updated})
+
+    except Exception as e:
+        print(f"Error updating autopilot rule: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/autopilot-rules/delete', methods=['POST'])
+@login_required
+def api_autopilot_rule_delete():
+    """Delete an autopilot rule"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        data = request.json
+        rule_id = data.get("ruleId")
+        if not rule_id:
+            return jsonify({"error": "Missing rule ID"}), 400
+
+        mutation = """
+        mutation DeleteRule($input: DeleteRuleInput!) {
+          deleteRule(input: $input) {
+            result { id }
+          }
+        }
+        """
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "DeleteRule",
+            "variables": {"input": {"ruleId": rule_id}},
+            "query": mutation
+        })
+        result = response.json()
+
+        if result.get("errors"):
+            return jsonify({"error": result["errors"][0].get("message", "GraphQL error")}), 400
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        print(f"Error deleting autopilot rule: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/account/autopilot-rules/create', methods=['POST'])
+@login_required
+def api_autopilot_rule_create():
+    """Create a new round-up rule"""
+    try:
+        headers = get_crew_headers()
+        if not headers:
+            return jsonify({"error": "Credentials not found"}), 401
+
+        data = request.json
+        rule_name = data.get("name", "Round Up")
+        account_id = data.get("accountId")
+        subaccount_id = data.get("subaccountId")
+        round_to_nearest = data.get("roundToNearest", 100)
+        card_ids = data.get("cardIds", [])
+
+        if not account_id:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Build conditions for linked cards
+        conditions = None
+        if card_ids:
+            id_matches = [{"idMatch": {"entityId": cid, "entitySchema": "DEBIT_CARDS"}} for cid in card_ids]
+            if len(id_matches) == 1:
+                conditions = id_matches[0]
+            else:
+                conditions = {"or": {"conditions": id_matches}}
+
+        # Use DEBIT_CARD_TRANSACTION trigger when cards are linked, otherwise CASH_TRANSACTION_OCCURRED
+        trigger = "DEBIT_CARD_TRANSACTION" if card_ids else "CASH_TRANSACTION_OCCURRED"
+
+        # Build the formula input
+        formula = {
+            "name": rule_name,
+            "description": "Save extra change from card purchases." if card_ids else "Round up transactions to the nearest dollar",
+            "triggers": [trigger],
+            "actions": [{
+                "roundUpTransfer": {
+                    "accountId": account_id,
+                    "roundToNearest": round_to_nearest,
+                    "accountType": "ACCOUNT"
+                }
+            }]
+        }
+        if subaccount_id:
+            formula["actions"][0]["roundUpTransfer"]["subaccountId"] = subaccount_id
+        if conditions:
+            formula["conditions"] = conditions
+
+        rule_input = {
+            "name": rule_name,
+            "formula": formula
+        }
+
+        mutation = """
+        mutation CreateRoundUpRule($input: CreateRuleInput!) {
+          createRule(input: $input) {
+            result {
+              id
+              name
+              isPaused
+              entities {
+                ... on DebitCard {
+                  id
+                  lastFour
+                }
+              }
+              formula {
+                actions {
+                  ... on RoundUpTransferAction {
+                    roundToNearest
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {"input": rule_input}
+
+        response = requests.post(URL, headers=headers, json={
+            "operationName": "CreateRoundUpRule",
+            "variables": variables,
+            "query": mutation
+        })
+        result = response.json()
+
+        if result.get("errors"):
+            return jsonify({"error": result["errors"][0].get("message", "GraphQL error")}), 400
+
+        created = result.get("data", {}).get("createRule", {}).get("result")
+        return jsonify({"success": True, "rule": created})
+
+    except Exception as e:
+        print(f"Error creating autopilot rule: {e}")
         return jsonify({"error": str(e)}), 500
 
 # --- API ROUTES ---
