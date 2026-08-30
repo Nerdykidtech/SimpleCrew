@@ -5,8 +5,11 @@ import functools
 import os
 import threading
 import json
+import hashlib
+import hmac
+import secrets
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, jsonify, request, send_from_directory, redirect
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, g
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from webauthn import (
@@ -90,6 +93,188 @@ def load_user(user_id):
     if row:
         return User(row[0], row[1], row[2])
     return None
+
+
+# ---------------------------------------------------------------------------
+# API keys
+#
+# SimpleCrew authenticates humans with a session cookie (and optionally a
+# passkey). Scripts and dashboards have no way in short of storing the
+# password, so this adds a second credential type: a bearer token presented on
+# the request, resolved by the request_loader below into the same User object
+# every @login_required route already expects.
+#
+# Two scopes:
+#   'read' - deny by default; only the GET routes in API_KEY_READ_RULES pass.
+#   'full' - everything except API_KEY_DENIED_RULES.
+#
+# "Read-only" deliberately does NOT mean "any GET". Several GET routes hand
+# back credentials or full card/bank numbers, so the read scope is a positive
+# allowlist of route rules rather than a filter on the HTTP method, and the
+# routes below are refused to any API key regardless of scope.
+# ---------------------------------------------------------------------------
+
+API_KEY_PREFIX = "sc_"
+API_KEY_PREFIX_LEN = 12  # stored in the clear so a key can be looked up and shown in the UI
+
+# Refused to every API key, whatever its scope. These either return a secret
+# (a card's PAN/CVV, a bank account number, a token another service accepts)
+# or let the caller change how the account is authenticated.
+API_KEY_DENIED_RULES = {
+    '/api/cards/<card_id>/sensitive',   # full card number + CVV
+    '/api/account/bank-details',        # account and routing numbers
+    '/api/simplefin/get-access-url',    # SimpleFIN access URL - a bearer credential in its own right
+    '/api/intercom',                    # Intercom identity JWT
+}
+
+# Prefixes refused to every API key: the whole auth surface (no password
+# change, no passkey enrolment, no registration) and API key management itself
+# (a key cannot mint or revoke keys).
+API_KEY_DENIED_PREFIXES = (
+    '/api/auth/',
+    '/api/account/api-keys',
+)
+
+# Routes a 'read' scoped key may call. GET only, and nothing that returns a
+# credential. Anything not listed here is refused.
+API_KEY_READ_RULES = {
+    '/api/onboarding/status',
+    '/api/account/credentials/status',
+    '/api/account/webauthn/config',
+    '/api/account/fcm/config',
+    '/api/account/autopilot-rules',
+    '/api/account/autopilot-rules/<rule_id>/details',
+    '/api/user',
+    '/api/family',
+    '/api/family-subaccounts',
+    '/api/subaccounts',
+    '/api/cards',
+    '/api/cards/<card_id>/details',
+    '/api/savings',
+    '/api/history',
+    '/api/transactions',
+    '/api/transaction/<path:tx_id>',
+    '/api/pocket-transactions/<path:pocket_id>',
+    '/api/expenses',
+    '/api/goals',
+    '/api/trends',
+    '/api/lunchflow/get-config',
+    '/api/lunchflow/accounts',
+    '/api/lunchflow/get-balance/<account_id>',
+    '/api/lunchflow/credit-card-status',
+    '/api/lunchflow/last-check-time',
+    '/api/lunchflow/transactions',
+    '/api/simplefin/sync-schedule',
+    '/api/simplefin/timezone',
+    '/api/splitwise/get-config',
+    '/api/splitwise/status',
+    '/api/splitwise/friends',
+    '/api/splitwise/friend-balances',
+    '/api/splitwise/get-creditors',
+}
+
+API_KEY_SCOPES = ('read', 'full')
+
+
+def generate_api_key():
+    """Generate a new API key. Returned once, never stored in the clear."""
+    return API_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_api_key(raw_key):
+    """Hash an API key for storage. SHA-256 is enough for a 256-bit random token."""
+    return hashlib.sha256(raw_key.encode('utf-8')).hexdigest()
+
+
+def extract_api_key(req):
+    """Pull an API key off the request, from Authorization: Bearer or X-API-Key."""
+    auth = req.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        candidate = auth[7:].strip()
+        if candidate.startswith(API_KEY_PREFIX):
+            return candidate
+    candidate = req.headers.get('X-API-Key', '').strip()
+    if candidate.startswith(API_KEY_PREFIX):
+        return candidate
+    return None
+
+
+def verify_api_key(raw_key):
+    """Look up a key by its prefix and compare hashes. Returns the row, or None."""
+    if not raw_key or not raw_key.startswith(API_KEY_PREFIX):
+        return None
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""SELECT id, user_id, key_hash, scope FROM api_keys
+                 WHERE key_prefix = ? AND revoked_at IS NULL""",
+              (raw_key[:API_KEY_PREFIX_LEN],))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+    if not hmac.compare_digest(row[2], hash_api_key(raw_key)):
+        return None
+    return {"id": row[0], "user_id": row[1], "scope": row[3]}
+
+
+def touch_api_key(key_id):
+    """Record that a key was used, so a stale one can be spotted and revoked."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", (key_id,))
+    conn.commit()
+    conn.close()
+
+
+def current_api_key():
+    """Resolve the request's API key once and cache it for the rest of the request."""
+    if 'api_key_record' not in g:
+        raw = extract_api_key(request)
+        g.api_key_record = verify_api_key(raw) if raw else None
+    return g.api_key_record
+
+
+@login_manager.request_loader
+def load_user_from_api_key(req):
+    """Authenticate a request carrying an API key, so @login_required routes work unchanged"""
+    record = current_api_key()
+    if not record:
+        return None
+    touch_api_key(record["id"])
+    return load_user(record["user_id"])
+
+
+@app.before_request
+def enforce_api_key_scope():
+    """Restrict what an API-key-authenticated request may reach.
+
+    Session requests are untouched - this only applies once a request presents
+    an API key. Registered before every other before_request handler so a
+    refused request does no work.
+    """
+    if extract_api_key(request) is None:
+        return None
+
+    record = current_api_key()
+    if record is None:
+        return jsonify({"error": "Invalid or revoked API key"}), 401
+
+    rule = request.url_rule.rule if request.url_rule else request.path
+
+    if not rule.startswith('/api/'):
+        return jsonify({"error": "API keys may only be used on /api/ routes"}), 403
+
+    if rule in API_KEY_DENIED_RULES or rule.startswith(API_KEY_DENIED_PREFIXES):
+        return jsonify({"error": "This endpoint is not available to API keys"}), 403
+
+    if record["scope"] == 'read':
+        if request.method != 'GET' or rule not in API_KEY_READ_RULES:
+            return jsonify({"error": "This API key is read-only"}), 403
+
+    return None
+
 
 # WebAuthn configuration
 RP_ID = os.environ.get('RP_ID', 'localhost')  # Relying Party ID (your domain)
@@ -563,6 +748,21 @@ def init_db():
         last_used_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
+
+    # API keys for programmatic access (hash only - the key itself is never stored)
+    c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        key_prefix TEXT NOT NULL UNIQUE,
+        key_hash TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'read',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix)')
 
     conn.commit()
 
@@ -2928,6 +3128,86 @@ def api_update_passkey(passkey_id):
     # Update nickname
     c.execute("UPDATE passkey_credentials SET nickname = ? WHERE id = ?",
               (nickname, passkey_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True})
+
+@app.route('/api/account/api-keys')
+@login_required
+def api_list_api_keys():
+    """List API keys. The key itself is not stored, so only the prefix is shown."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""SELECT id, label, key_prefix, scope, created_at, last_used_at
+                 FROM api_keys
+                 WHERE user_id = ? AND revoked_at IS NULL
+                 ORDER BY created_at DESC""", (current_user.id,))
+    keys = [{
+        "id": row[0],
+        "label": row[1],
+        "prefix": row[2],
+        "scope": row[3],
+        "created_at": row[4],
+        "last_used_at": row[5]
+    } for row in c.fetchall()]
+    conn.close()
+
+    return jsonify({"api_keys": keys})
+
+@app.route('/api/account/api-keys', methods=['POST'])
+@login_required
+def api_create_api_key():
+    """Mint an API key. The key is returned once here and never again."""
+    data = request.json or {}
+    label = data.get('label', '').strip()
+    scope = data.get('scope', 'read')
+
+    if not label:
+        return jsonify({"success": False, "error": "Label required"}), 400
+
+    if scope not in API_KEY_SCOPES:
+        return jsonify({"success": False, "error": "Invalid scope"}), 400
+
+    raw_key = generate_api_key()
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""INSERT INTO api_keys (user_id, label, key_prefix, key_hash, scope)
+                 VALUES (?, ?, ?, ?, ?)""",
+              (current_user.id, label, raw_key[:API_KEY_PREFIX_LEN], hash_api_key(raw_key), scope))
+    key_id = c.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "id": key_id,
+        "label": label,
+        "scope": scope,
+        "key": raw_key
+    })
+
+@app.route('/api/account/api-keys/<int:key_id>', methods=['DELETE'])
+@login_required
+def api_revoke_api_key(key_id):
+    """Revoke an API key. Kept as a row so last_used_at survives the revocation."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Verify ownership
+    c.execute("SELECT user_id FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "API key not found"}), 404
+
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    c.execute("UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", (key_id,))
     conn.commit()
     conn.close()
 

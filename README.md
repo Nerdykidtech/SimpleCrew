@@ -100,6 +100,7 @@ SimpleCrew is a comprehensive financial dashboard that connects to [Crew Banking
 | **Single-Tenant Model** | One user per deployment for privacy |
 | **Session Management** | Secure cookie-based sessions with HttpOnly flag |
 | **Passkey Management** | Add, rename, and remove passkeys from account settings |
+| **API Keys** | Scoped, revocable bearer tokens for scripts and dashboards - read-only by default |
 
 ### 🎨 User Experience
 | Feature | Description |
@@ -295,8 +296,41 @@ SimpleCrew/
 | `/api/account/webauthn/config` | GET | Get WebAuthn configuration (RP_ID and ORIGIN) |
 | `/api/account/webauthn/update-config` | POST | Update WebAuthn configuration |
 | `/api/account/webauthn/test` | POST | Test WebAuthn configuration validity |
+| `/api/account/api-keys` | GET | List API keys (prefix only - the key itself is not stored) |
+| `/api/account/api-keys` | POST | Mint an API key, returned once in the response |
+| `/api/account/api-keys/<id>` | DELETE | Revoke an API key |
 
-> **Note**: All API endpoints below require authentication. Unauthenticated requests will be redirected to `/login`.
+> **Note**: All API endpoints below require authentication - either a session cookie or an API key. Unauthenticated browser requests are redirected to `/login`.
+
+### API Keys
+
+Sessions suit browsers; scripts, dashboards and home automation need a credential they can hold. Create one under **Settings -> API Keys**, then send it on any `/api/` request:
+
+```bash
+curl -H "Authorization: Bearer sc_..." http://localhost:8080/api/savings
+```
+
+`X-API-Key: sc_...` works too. The key is shown once at creation and only a SHA-256 hash of it is stored, so a lost key is revoked and replaced rather than recovered. Revoking takes effect immediately, and each key records when it was last used so a forgotten one is easy to spot.
+
+**Scopes**
+
+| Scope | Access |
+|-------|--------|
+| `read` (default) | GET requests to an allowlist of read endpoints - balances, transactions, cards, goals, trends, family, integration status |
+| `full` | Everything a session can do, minus the endpoints below |
+
+"Read only" is an allowlist of routes rather than a filter on the HTTP method, because several GET endpoints return secrets. These are refused to **any** API key, whatever its scope:
+
+| Endpoint | Why |
+|----------|-----|
+| `/api/cards/<id>/sensitive` | Full card number and CVV |
+| `/api/account/bank-details` | Account and routing numbers |
+| `/api/simplefin/get-access-url` | SimpleFIN access URL - a credential for every connected account |
+| `/api/intercom` | Intercom identity token |
+| `/api/auth/*` | No password changes, passkey enrolment or registration |
+| `/api/account/api-keys*` | A key cannot mint or revoke keys |
+
+A refused request returns `403`; an unrecognised or revoked key returns `401`.
 
 ### Financial Data
 | Endpoint | Method | Description |

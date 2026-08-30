@@ -304,6 +304,60 @@
                 </div>
             </div>
 
+            <!-- API Keys -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E0F2F1, #B2DFDB); color: #00695C;">&#x1f9e9;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">API Keys</div>
+                        <div class="settings-section-subtitle">Programmatic access for scripts and dashboards</div>
+                    </div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <div style="background: var(--bg-elevated); border-radius: 8px; padding: 12px 16px; margin: 12px 0 16px 0;">
+                        <p style="font-size: 12px; color: var(--text-light); line-height: 1.5; margin: 0;">
+                            Send the key as <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">Authorization: Bearer sc_...</code> on any <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">/api/</code> request.<br>
+                            <strong style="color: var(--text-dark);">Read only</strong> keys can fetch balances, cards, transactions and goals. <strong style="color: var(--text-dark);">Full access</strong> keys can also make changes.<br>
+                            Card numbers, bank account details and stored service credentials are never available to an API key, whatever its scope.
+                        </p>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                        <button id="showAddApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">+ Create API Key</button>
+                    </div>
+                    <div id="addApiKeyForm" style="display: none; background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="font-size: 14px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">Create API Key</h4>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">Label</label>
+                            <input type="text" id="apiKeyLabel" placeholder='e.g., "Home dashboard", "Budget script"' style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">Scope</label>
+                            <select id="apiKeyScope" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                                <option value="read">Read only</option>
+                                <option value="full">Full access</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="createApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; flex: 1;">Create Key</button>
+                            <button id="cancelAddApiKeyBtn" style="background: transparent; color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="newApiKeyReveal" style="display: none; background: var(--bg-elevated); border: 1px solid var(--simple-blue); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="font-size: 14px; font-weight: 600; color: var(--text-dark); margin: 0 0 8px 0;">Copy your new key now</h4>
+                        <p style="font-size: 12px; color: var(--text-light); margin: 0 0 10px 0;">This is the only time it will be shown. Only a hash of it is stored.</p>
+                        <code id="newApiKeyValue" style="display: block; background: var(--bg-card); padding: 10px 12px; border-radius: 6px; font-size: 12px; word-break: break-all; color: var(--text-dark);"></code>
+                        <div style="display: flex; gap: 10px; margin-top: 12px;">
+                            <button id="copyApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Copy</button>
+                            <button id="dismissApiKeyBtn" style="background: transparent; color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Done</button>
+                        </div>
+                    </div>
+                    <div id="apiKeysList">
+                        <p style="color: var(--text-light); text-align: center; font-size: 13px;">Loading API keys...</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Passkey Configuration -->
             <div class="settings-section collapsed">
                 <div class="settings-section-header" onclick="toggleSettingsSection(this)">
@@ -1350,6 +1404,98 @@ async function deletePasskey(passkeyId) {
 
 if (document.getElementById('passkeysList')) {
     loadPasskeys();
+}
+
+// API key management functions
+async function loadApiKeys() {
+    try {
+        const response = await fetch('/api/account/api-keys');
+        const data = await response.json();
+        const container = document.getElementById('apiKeysList');
+
+        if (data.api_keys.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-light); text-align: center; font-size: 13px;">No API keys. Create one to let a script or dashboard read your data.</p>';
+            return;
+        }
+
+        container.innerHTML = data.api_keys.map(key => `
+            <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-weight: 600; color: var(--text-dark); font-size: 14px; margin-bottom: 2px;">${key.label}</div>
+                    <div style="font-size: 12px; color: var(--text-light);">
+                        <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 11px;">${key.prefix}&hellip;</code>
+                        &middot; ${key.scope === 'full' ? 'Full access' : 'Read only'}
+                        &middot; Created: ${new Date(key.created_at).toLocaleDateString()}
+                        ${key.last_used_at ? ` &middot; Last used: ${new Date(key.last_used_at).toLocaleDateString()}` : ' &middot; Never used'}
+                    </div>
+                </div>
+                <button onclick="revokeApiKey(${key.id})" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;">Revoke</button>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load API keys:', error);
+        document.getElementById('apiKeysList').innerHTML = '<p style="color: #dc3545; font-size: 13px;">Failed to load API keys</p>';
+    }
+}
+
+async function revokeApiKey(keyId) {
+    if (!confirm('Revoke this API key? Anything using it will stop working immediately.')) return;
+    try {
+        const response = await fetch(`/api/account/api-keys/${keyId}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (result.success) loadApiKeys();
+        else alert(result.error || 'Failed to revoke');
+    } catch (error) { alert('Network error'); }
+}
+
+if (document.getElementById('apiKeysList')) {
+    loadApiKeys();
+
+    document.getElementById('showAddApiKeyBtn').addEventListener('click', () => {
+        document.getElementById('addApiKeyForm').style.display = 'block';
+        document.getElementById('showAddApiKeyBtn').style.display = 'none';
+        document.getElementById('apiKeyLabel').focus();
+    });
+
+    document.getElementById('cancelAddApiKeyBtn').addEventListener('click', () => {
+        document.getElementById('addApiKeyForm').style.display = 'none';
+        document.getElementById('showAddApiKeyBtn').style.display = 'block';
+        document.getElementById('apiKeyLabel').value = '';
+    });
+
+    document.getElementById('createApiKeyBtn').addEventListener('click', async () => {
+        const label = document.getElementById('apiKeyLabel').value.trim();
+        const scope = document.getElementById('apiKeyScope').value;
+        if (!label) { alert('Please enter a label'); return; }
+
+        try {
+            const response = await fetch('/api/account/api-keys', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ label, scope })
+            });
+            const result = await response.json();
+            if (!result.success) { alert(result.error || 'Failed to create API key'); return; }
+
+            document.getElementById('addApiKeyForm').style.display = 'none';
+            document.getElementById('apiKeyLabel').value = '';
+            document.getElementById('newApiKeyValue').textContent = result.key;
+            document.getElementById('newApiKeyReveal').style.display = 'block';
+            loadApiKeys();
+        } catch (error) { alert('Network error'); }
+    });
+
+    document.getElementById('copyApiKeyBtn').addEventListener('click', () => {
+        navigator.clipboard.writeText(document.getElementById('newApiKeyValue').textContent);
+        document.getElementById('copyApiKeyBtn').textContent = 'Copied';
+        setTimeout(() => { document.getElementById('copyApiKeyBtn').textContent = 'Copy'; }, 2000);
+    });
+
+    document.getElementById('dismissApiKeyBtn').addEventListener('click', () => {
+        document.getElementById('newApiKeyReveal').style.display = 'none';
+        document.getElementById('newApiKeyValue').textContent = '';
+        document.getElementById('showAddApiKeyBtn').style.display = 'block';
+    });
 }
 
 // WebAuthn Configuration
