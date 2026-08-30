@@ -2,11 +2,13 @@ import requests
 import sqlite3
 import time
 import functools
+import hashlib
 import os
+import secrets
 import threading
 import json
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, jsonify, request, send_from_directory, redirect
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, g
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from webauthn import (
@@ -89,6 +91,182 @@ def load_user(user_id):
     conn.close()
     if row:
         return User(row[0], row[1], row[2])
+    return None
+
+# --- SCOPED API KEY AUTHENTICATION ---
+# Machine clients (scripts, dashboards, home automation) authenticate with
+# "Authorization: Bearer sc_...". Keys are stored as a SHA-256 hash — the
+# plaintext is shown exactly once, at mint time, and is never recoverable.
+
+API_KEY_PREFIX = 'sc_'
+API_KEY_SCOPES = ('read',)
+
+# Endpoints an API key with scope 'read' is allowed to reach. This is a
+# POSITIVE allowlist keyed on the Flask endpoint name: anything not listed
+# here is refused, so a route added later is denied until someone opts it in.
+#
+# ⚠️ "Read-only" CANNOT mean "the GET verb" in this application. Two plain
+# GET routes hand out live credentials, and a verb-based scope would have
+# leaked both while looking correct:
+#
+#   GET /api/cards/<card_id>/sensitive   -> full PAN + CVV, via a CDE token
+#                                           exchange against Crew
+#   GET /api/simplefin/get-access-url    -> the raw SimpleFin access URL,
+#                                           a bearer credential for every
+#                                           linked bank account
+#
+# The reverse is true too: several entries below are served over POST because
+# the Crew backend is GraphQL, where reads are POSTs. The HTTP verb says
+# nothing about whether a route reads or writes — only the endpoint name does.
+READ_SCOPE_ENDPOINTS = frozenset({
+    # Balances, history and trends
+    'api_savings',
+    'api_history',
+    'api_trends',
+    'api_transactions',
+    'api_transaction_detail',
+    'api_pocket_transactions',
+    # Pockets, expenses and goals
+    'api_expenses',
+    'api_goals',
+    'api_subaccounts',
+    'api_family_subaccounts',
+    # Family and cards (metadata only — never the sensitive route below)
+    'api_family',
+    'api_cards',
+    'api_card_details',
+    # Account and setup status (booleans, no credential values)
+    'api_user',
+    'api_onboarding_status',
+    'api_get_credentials_status',
+    # Credit card sync, read side
+    'api_credit_card_status',
+    'api_get_credit_card_transactions',
+    'api_last_check_time',
+    'api_lunchflow_accounts',
+    'api_get_balance',
+    'api_get_simplefin_sync_schedule',
+    'api_get_simplefin_timezone',
+    # Splitwise, read side
+    'api_splitwise_status',
+    'api_splitwise_get_friends',
+    'api_splitwise_get_creditors',
+    'api_splitwise_friend_balances',
+    # AutoPilot rules, read side
+    'api_autopilot_rules',
+    'api_autopilot_rule_details',
+})
+
+# Named refusals. Everything not in READ_SCOPE_ENDPOINTS is already denied,
+# so this list is belt-and-braces: if someone widens the allowlist later,
+# these endpoints stay refused for key-authenticated requests regardless.
+READ_SCOPE_NEVER_ENDPOINTS = frozenset({
+    'api_card_sensitive',            # full PAN + CVV
+    'api_simplefin_get_access_url',  # live SimpleFin bearer credential
+    'api_account_bank_details',      # account + routing numbers
+    'api_list_api_keys',             # no key may enumerate or mint keys
+    'api_create_api_key',
+    'api_revoke_api_key',
+})
+
+
+def hash_api_key(plaintext):
+    """Hash an API key for storage/lookup.
+
+    A plain SHA-256 is correct here (and is what GitHub does for its tokens):
+    the key is 256 bits of secrets.token_urlsafe output, so there is no
+    low-entropy guess space for a slow KDF to protect.
+    """
+    return hashlib.sha256(plaintext.encode('utf-8')).hexdigest()
+
+
+def generate_api_key():
+    """Return a new plaintext API key. Shown once, never stored in the clear."""
+    return API_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def extract_api_key(req):
+    """Return the sc_ key from an Authorization: Bearer header, or None."""
+    header = req.headers.get('Authorization', '')
+    if not header.startswith('Bearer '):
+        return None
+    token = header[len('Bearer '):].strip()
+    if not token.startswith(API_KEY_PREFIX):
+        return None
+    return token
+
+
+@login_manager.request_loader
+def load_user_from_api_key(req):
+    """Authenticate a request carrying an API key.
+
+    Flask-Login only calls this when no session cookie resolved a user, so
+    browser sessions are completely unaffected. Because it returns the same
+    User object the session path returns, all existing @login_required routes
+    keep working without modification.
+    """
+    token = extract_api_key(req)
+    if not token:
+        return None
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT k.id, k.user_id, k.scope, k.revoked_at, u.username, u.email
+            FROM api_keys k JOIN users u ON u.id = k.user_id
+            WHERE k.key_hash = ?
+        """, (hash_api_key(token),))
+        row = c.fetchone()
+        if not row:
+            return None
+        key_id, user_id, scope, revoked_at, username, email = row
+        if revoked_at:
+            return None
+        c.execute("UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", (key_id,))
+        conn.commit()
+    except sqlite3.OperationalError:
+        # Table missing (database predates this feature) — no key auth available.
+        return None
+    finally:
+        conn.close()
+
+    g.api_key_id = key_id
+    g.api_key_scope = scope
+    return User(user_id, username, email)
+
+
+@app.before_request
+def enforce_api_key_scope():
+    """Gate key-authenticated requests to the routes their scope allows.
+
+    Requests without an sc_ Authorization header return immediately, so
+    session-authenticated browser traffic never touches this code path.
+    """
+    token = extract_api_key(request)
+    if token is None:
+        return None
+
+    authenticated = current_user.is_authenticated  # forces the request_loader
+    scope = g.get('api_key_scope')
+
+    if scope is None:
+        if authenticated:
+            # A valid session cookie was also present; session auth wins and
+            # the unusable header is ignored.
+            return None
+        # Unknown or revoked key. Answer 401 here rather than letting
+        # Flask-Login redirect an API client to the HTML login page.
+        return jsonify({"error": "Invalid or revoked API key"}), 401
+
+    if scope == 'read':
+        endpoint = request.endpoint
+        if endpoint in READ_SCOPE_NEVER_ENDPOINTS or endpoint not in READ_SCOPE_ENDPOINTS:
+            return jsonify({
+                "error": "This endpoint is not available to a read-scoped API key",
+                "scope": scope
+            }), 403
+
     return None
 
 # WebAuthn configuration
@@ -495,6 +673,21 @@ def init_db():
         is_active INTEGER DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         last_login TEXT
+    )''')
+
+    # Scoped API keys for machine clients. Only the SHA-256 hash is stored —
+    # the plaintext key is shown once, at mint time, and cannot be recovered.
+    # key_prefix holds the first few characters for display in the UI only.
+    c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'read',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TEXT,
+        revoked_at TEXT
     )''')
 
     # Passkey/WebAuthn credentials table
@@ -2932,6 +3125,91 @@ def api_update_passkey(passkey_id):
     conn.close()
 
     return jsonify({"success": True})
+
+@app.route('/api/account/api-keys', methods=['GET'])
+@login_required
+def api_list_api_keys():
+    """List this user's API keys. Never returns key material."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, label, key_prefix, scope, created_at, last_used_at, revoked_at
+        FROM api_keys
+        WHERE user_id = ?
+        ORDER BY revoked_at IS NOT NULL, created_at DESC
+    """, (current_user.id,))
+    keys = [{
+        'id': row[0],
+        'label': row[1],
+        'keyPrefix': row[2],
+        'scope': row[3],
+        'createdAt': row[4],
+        'lastUsedAt': row[5],
+        'revokedAt': row[6],
+        'revoked': row[6] is not None
+    } for row in c.fetchall()]
+    conn.close()
+    return jsonify({"keys": keys})
+
+
+@app.route('/api/account/api-keys', methods=['POST'])
+@login_required
+def api_create_api_key():
+    """Mint a new API key. The plaintext is returned here and nowhere else."""
+    data = request.get_json(silent=True) or {}
+    label = (data.get('label') or '').strip()
+    scope = (data.get('scope') or 'read').strip()
+
+    if not label:
+        return jsonify({"success": False, "error": "Label is required"}), 400
+    if scope not in API_KEY_SCOPES:
+        return jsonify({"success": False, "error": "Unsupported scope"}), 400
+
+    plaintext = generate_api_key()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO api_keys (user_id, label, key_hash, key_prefix, scope)
+        VALUES (?, ?, ?, ?, ?)
+    """, (current_user.id, label, hash_api_key(plaintext), plaintext[:11], scope))
+    key_id = c.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "id": key_id,
+        "label": label,
+        "scope": scope,
+        # Shown exactly once — only the hash is stored.
+        "key": plaintext
+    })
+
+
+@app.route('/api/account/api-keys/<int:key_id>/revoke', methods=['POST'])
+@login_required
+def api_revoke_api_key(key_id):
+    """Revoke an API key. Revocation takes effect on the next request."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id, revoked_at FROM api_keys WHERE id = ?", (key_id,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "API key not found"}), 404
+    if row[0] != current_user.id:
+        conn.close()
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    if row[1]:
+        conn.close()
+        return jsonify({"success": True, "message": "Already revoked"})
+
+    c.execute("UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", (key_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
 
 @app.route('/')
 @login_required
