@@ -100,6 +100,9 @@ SimpleCrew is a comprehensive financial dashboard that connects to [Crew Banking
 | **Single-Tenant Model** | One user per deployment for privacy |
 | **Session Management** | Secure cookie-based sessions with HttpOnly flag |
 | **Passkey Management** | Add, rename, and remove passkeys from account settings |
+| **Scoped API Keys** | Read-only `sc_` keys for scripts and dashboards, minted and revoked from account settings |
+| **API Key Storage** | Only a SHA-256 hash is stored; the key is shown once at creation and is never recoverable |
+| **Route-Level Scoping** | A read key is limited to an explicit allowlist of endpoints — never card numbers or provider credentials |
 
 ### 🎨 User Experience
 | Feature | Description |
@@ -161,6 +164,15 @@ python app.py
 open http://localhost:8080
 ```
 
+### Running the Tests
+
+```bash
+pip install -r requirements.txt pytest
+pytest tests/
+```
+
+The suite uses a throwaway SQLite database and makes no network calls.
+
 ### First-Time Setup
 
 1. Navigate to `http://localhost:8080`
@@ -210,6 +222,10 @@ SimpleCrew/
 │
 ├── data/                           # Database storage (git-ignored)
 │   └── savings_data.db
+│
+├── tests/                          # pytest suite
+│   ├── conftest.py
+│   └── test_api_keys.py
 │
 ├── static/
 │   ├── css/
@@ -295,8 +311,38 @@ SimpleCrew/
 | `/api/account/webauthn/config` | GET | Get WebAuthn configuration (RP_ID and ORIGIN) |
 | `/api/account/webauthn/update-config` | POST | Update WebAuthn configuration |
 | `/api/account/webauthn/test` | POST | Test WebAuthn configuration validity |
+| `/api/account/api-keys` | GET | List API keys (metadata only, never key material) |
+| `/api/account/api-keys` | POST | Mint a new API key — returns the plaintext once |
+| `/api/account/api-keys/<id>/revoke` | POST | Revoke an API key |
 
 > **Note**: All API endpoints below require authentication. Unauthenticated requests will be redirected to `/login`.
+
+### Authenticating with an API Key
+
+Sessions are for browsers; API keys are for scripts. Mint one under
+**My Account → Security → API Keys**, then send it as a bearer token:
+
+```bash
+curl -H "Authorization: Bearer sc_your_key_here" \
+     http://localhost:8080/api/savings
+```
+
+The plaintext key is displayed once, at creation. Only its SHA-256 hash is
+stored, so a lost key is replaced rather than recovered. Revoking a key takes
+effect on the next request.
+
+Keys currently carry a single scope, `read`, which is limited to an explicit
+allowlist of endpoints — balances, transactions, pockets, expenses, goals,
+card metadata, and sync status. Everything else returns `403`.
+
+> **`read` does not mean "any GET request".** Two endpoints in this app answer
+> a plain `GET` with a live credential: `/api/cards/<id>/sensitive` returns a
+> full card number and CVV, and `/api/simplefin/get-access-url` returns the
+> SimpleFin access URL for every linked bank account. Both are refused to API
+> keys by name and remain reachable only from a logged-in browser session.
+
+An unknown or revoked key returns `401`. Requests without an `sc_` bearer
+header are unaffected and continue to use session authentication.
 
 ### Financial Data
 | Endpoint | Method | Description |

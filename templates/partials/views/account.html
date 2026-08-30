@@ -304,6 +304,50 @@
                 </div>
             </div>
 
+            <!-- API Keys -->
+            <div class="settings-section collapsed">
+                <div class="settings-section-header" onclick="toggleSettingsSection(this)">
+                    <div class="settings-section-icon" style="background: linear-gradient(135deg, #E1F5FE, #B3E5FC); color: #01579B;">&#x1f5dd;&#xFE0F;</div>
+                    <div class="settings-section-info">
+                        <div class="settings-section-title">API Keys</div>
+                        <div class="settings-section-subtitle">Read-only access for scripts and dashboards</div>
+                    </div>
+                    <div class="settings-section-chevron">&#x25BC;</div>
+                </div>
+                <div class="settings-section-body">
+                    <p style="font-size: 12px; color: var(--text-light); margin: 12px 0 0 0;">
+                        Send a key as <code>Authorization: Bearer sc_...</code>. A read key can fetch balances,
+                        transactions, pockets and card metadata. It can never write, and it can never read full
+                        card numbers or your SimpleFin access URL &mdash; those stay session-only.
+                    </p>
+                    <div style="display: flex; justify-content: flex-end; margin-top: 12px; margin-bottom: 12px;">
+                        <button id="showAddApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">+ New API Key</button>
+                    </div>
+                    <div id="addApiKeyForm" style="display: none; background: var(--bg-elevated); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="font-size: 14px; font-weight: 600; color: var(--text-dark); margin: 0 0 12px 0;">Create Read-Only Key</h4>
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text-dark); font-size: 13px;">Label</label>
+                            <input type="text" id="apiKeyLabel" placeholder='e.g., "Home dashboard", "Budget script"' style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-dark); box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="createApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; flex: 1;">Create Key</button>
+                            <button id="cancelAddApiKeyBtn" style="background: transparent; color: var(--text-dark); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="newApiKeyReveal" style="display: none; background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
+                        <div style="font-weight: 600; color: #7a5c00; font-size: 13px; margin-bottom: 8px;">Copy this key now &mdash; it is shown only once.</div>
+                        <code id="newApiKeyValue" style="display: block; word-break: break-all; font-size: 13px; color: #4a3a00; background: #fffdf5; border-radius: 6px; padding: 10px;"></code>
+                        <div style="display: flex; gap: 8px; margin-top: 10px;">
+                            <button id="copyApiKeyBtn" style="background: var(--simple-blue); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">Copy</button>
+                            <button id="dismissApiKeyBtn" style="background: transparent; color: var(--text-dark); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">Done</button>
+                        </div>
+                    </div>
+                    <div id="apiKeysList">
+                        <p style="color: var(--text-light); text-align: center; font-size: 13px;">Loading API keys...</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Passkey Configuration -->
             <div class="settings-section collapsed">
                 <div class="settings-section-header" onclick="toggleSettingsSection(this)">
@@ -1350,6 +1394,100 @@ async function deletePasskey(passkeyId) {
 
 if (document.getElementById('passkeysList')) {
     loadPasskeys();
+}
+
+// API key management functions
+async function loadApiKeys() {
+    try {
+        const response = await fetch('/api/account/api-keys');
+        const data = await response.json();
+        const container = document.getElementById('apiKeysList');
+
+        if (!data.keys || data.keys.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-light); text-align: center; font-size: 13px;">No API keys yet. Create one to let a script read your data.</p>';
+            return;
+        }
+
+        container.innerHTML = data.keys.map(key => `
+            <div style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; ${key.revoked ? 'opacity: 0.55;' : ''}">
+                <div>
+                    <div style="font-weight: 600; color: var(--text-dark); font-size: 14px; margin-bottom: 2px;">${key.label}${key.revoked ? ' &middot; revoked' : ''}</div>
+                    <div style="font-size: 12px; color: var(--text-light);">
+                        ${key.keyPrefix}&hellip; &middot; ${key.scope} &middot; Created: ${new Date(key.createdAt).toLocaleDateString()}
+                        ${key.lastUsedAt ? ` &middot; Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}` : ' &middot; Never used'}
+                    </div>
+                </div>
+                ${key.revoked ? '' : `<button onclick="revokeApiKey(${key.id})" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;">Revoke</button>`}
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load API keys:', error);
+        document.getElementById('apiKeysList').innerHTML = '<p style="color: #dc3545; font-size: 13px;">Failed to load API keys</p>';
+    }
+}
+
+async function revokeApiKey(keyId) {
+    if (!confirm('Revoke this key? Anything using it will stop working immediately.')) return;
+    try {
+        const response = await fetch(`/api/account/api-keys/${keyId}/revoke`, { method: 'POST' });
+        const result = await response.json();
+        if (result.success) loadApiKeys();
+        else alert(result.error || 'Failed to revoke');
+    } catch (error) { alert('Network error'); }
+}
+
+document.getElementById('showAddApiKeyBtn')?.addEventListener('click', () => {
+    document.getElementById('addApiKeyForm').style.display = 'block';
+    document.getElementById('apiKeyLabel').value = '';
+    document.getElementById('apiKeyLabel').focus();
+});
+
+document.getElementById('cancelAddApiKeyBtn')?.addEventListener('click', () => {
+    document.getElementById('addApiKeyForm').style.display = 'none';
+});
+
+document.getElementById('dismissApiKeyBtn')?.addEventListener('click', () => {
+    document.getElementById('newApiKeyReveal').style.display = 'none';
+    document.getElementById('newApiKeyValue').textContent = '';
+});
+
+document.getElementById('copyApiKeyBtn')?.addEventListener('click', async () => {
+    const value = document.getElementById('newApiKeyValue').textContent;
+    try {
+        await navigator.clipboard.writeText(value);
+        document.getElementById('copyApiKeyBtn').textContent = 'Copied';
+    } catch (error) {
+        alert('Copy failed — select the key and copy it manually.');
+    }
+});
+
+document.getElementById('createApiKeyBtn')?.addEventListener('click', async () => {
+    const label = document.getElementById('apiKeyLabel').value.trim();
+    if (!label) {
+        alert('Please enter a label for this key');
+        return;
+    }
+    try {
+        const response = await fetch('/api/account/api-keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label, scope: 'read' })
+        });
+        const result = await response.json();
+        if (!result.success) {
+            alert(result.error || 'Failed to create key');
+            return;
+        }
+        document.getElementById('addApiKeyForm').style.display = 'none';
+        document.getElementById('copyApiKeyBtn').textContent = 'Copy';
+        document.getElementById('newApiKeyValue').textContent = result.key;
+        document.getElementById('newApiKeyReveal').style.display = 'block';
+        loadApiKeys();
+    } catch (error) { alert('Network error'); }
+});
+
+if (document.getElementById('apiKeysList')) {
+    loadApiKeys();
 }
 
 // WebAuthn Configuration
